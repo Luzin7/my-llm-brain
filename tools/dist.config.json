@@ -1,0 +1,61 @@
+{
+  "claude-code": {
+    "include_name": true,
+    "tiers": {
+      "judge": {"effort": "high", "autoCompactWindow": 200000},
+      "worker": {"autoCompactWindow": 150000},
+      "mechanical": {"autoCompactWindow": 100000}
+    },
+    "defaults": {"omitClaudeMd": true, "rules": ["rules/posture.md"]},
+    "agents": {
+      "architect": {"model": "opus", "effort": "xhigh"},
+      "scout": {"model": "haiku"},
+      "backend-dev": {"model": "sonnet"},
+      "frontend-dev": {"model": "sonnet"},
+      "test-engineer": {"model": "sonnet"},
+      "debugger": {"model": "sonnet"},
+      "reviewer": {"model": "sonnet"},
+      "edge-auditor": {"model": "opus", "effort": "high"},
+      "researcher": {"model": "sonnet"},
+      "scribe": {"model": "haiku"},
+      "brain-keeper": {"model": "haiku"},
+      "operator": {"model": "sonnet"}
+    }
+  },
+  "opencode": {
+    "include_name": false,
+    "defaults": {"mode": "subagent", "rules": ["rules/posture.md"]},
+    "extra_agents": {
+      "maestro": {
+        "frontmatter": {
+          "description": "Orchestrator: plans, dispatches workers, judges results, never edits.",
+          "mode": "primary",
+          "permission": {"edit": "deny", "bash": "deny"},
+          "rules": ["rules/posture.md", "rules/orchestration.md"]
+        },
+        "body_from": "maestro/maestro.md"
+      }
+    }
+  },
+  "codex": {
+    "include_name": true,
+    "tiers": {
+      "judge": {"model_reasoning_effort": "high"},
+      "worker": {"model_reasoning_effort": "medium"},
+      "mechanical": {"model_reasoning_effort": "low"}
+    },
+    "defaults": {"rules": ["rules/posture.md"]}
+  },
+  "bundles": {
+    "claude-code": ["maestro/maestro.md", "rules/posture.md", "rules/orchestration.md", "rules/memory.md"],
+    "opencode": ["rules/posture.md", "rules/orchestration.md", "rules/memory.md"],
+    "agents-md": ["rules/posture.md", "rules/memory.md"]
+  },
+  "plugin": {
+    "name": "brain",
+    "version": "2.0.0",
+    "description": "Role agents and the task-board skill of my-llm-brain.",
+    "marketplace": "my-llm-brain",
+    "owner": "Luzin7"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "my-llm-brain",
+  "owner": {
+    "name": "Luzin7"
+  },
+  "plugins": [
+    {
+      "name": "brain",
+      "source": "./",
+      "description": "Role agents and the task-board skill of my-llm-brain."
+    }
+  ]
+}
