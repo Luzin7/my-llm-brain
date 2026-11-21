@@ -102,18 +102,20 @@ class InstallScenarios:
     def assert_real_profile_untouched(self):
         self.assertEqual(self.before, real_profile_snapshot())
 
-    def script(self, steps):
+    def script(self, steps, after_vars="", strict=True):
         found = blocks(self.flavor)
-        body = "\n".join(found[step] for step in steps)
+        body = "\n".join(found[step] + (after_vars if step == "vars" else "") for step in steps)
         if self.flavor == "sh":
             return f'AGENTS_TARGET="{self.agents_target}"\n{body}\n'
-        return f"$ErrorActionPreference = 'Stop'\n$AgentsTarget = '{self.agents_target}'\n{body}\n"
+        stop = "$ErrorActionPreference = 'Stop'\n" if strict else ""
+        return f"{stop}$AgentsTarget = '{self.agents_target}'\n{body}\n"
 
-    def run_steps(self, steps):
+    def run_steps(self, steps, after_vars="", strict=True):
         suffix = ".sh" if self.flavor == "sh" else ".ps1"
         path = self.root / f"run{suffix}"
-        path.write_bytes(self.script(steps).encode("utf-8"))
-        command = ["sh", "-eu", str(path)] if self.flavor == "sh" else [PWSH or "pwsh", "-NoProfile", "-File", str(path)]
+        path.write_bytes(self.script(steps, after_vars, strict).encode("utf-8"))
+        shell = ["sh", "-eu"] if strict else ["sh"]
+        command = [*shell, str(path)] if self.flavor == "sh" else [PWSH or "pwsh", "-NoProfile", "-File", str(path)]
         return subprocess.run(command, cwd=ROOT, env=self.env, capture_output=True, text=True, timeout=120)
 
     def ok(self, steps):
@@ -137,12 +139,43 @@ class InstallScenarios:
         self.install("claude")
         self.assertEqual(first, self.managed_snapshot())
 
+    def unwritable_backup(self):
+        return "\nSTAMP='no-such-dir/x'\n" if self.flavor == "sh" else "\n$Stamp = 'no-such-dir/x'\n"
+
+    def run_without_stop(self, harness):
+        return self.run_steps([*BASE, f"{harness}-install"], self.unwritable_backup(), strict=False)
+
+    def test_claude_backup_failure_leaves_user_file_intact_without_strict_mode(self):
+        original = "# my own rules\nkeep me\n"
+        (self.claude / "CLAUDE.md").write_text(original, encoding="utf-8")
+        result = self.run_without_stop("claude")
+        self.assertIn("STOP", result.stdout + result.stderr)
+        self.assertEqual(original, (self.claude / "CLAUDE.md").read_text(encoding="utf-8"))
+
+    def test_agents_md_backup_failure_leaves_user_file_intact_without_strict_mode(self):
+        original = "# my own rules\nkeep me\n"
+        self.agents_target.parent.mkdir(parents=True)
+        self.agents_target.write_text(original, encoding="utf-8")
+        result = self.run_without_stop("agents-md")
+        self.assertIn("STOP", result.stdout + result.stderr)
+        self.assertEqual(original, self.agents_target.read_text(encoding="utf-8"))
+
     def test_existing_side_is_left_untouched(self):
         (self.side / "rules").mkdir(parents=True)
         (self.side / "rules/side.md").write_text("mine\n", encoding="utf-8")
-        self.install("claude")
+        result = self.run_steps([*BASE, "claude-install"])
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("STOP", result.stdout + result.stderr)
+        self.assertIn("memory/MEMORY.md", result.stdout + result.stderr)
         self.assertEqual("mine\n", (self.side / "rules/side.md").read_text(encoding="utf-8"))
         self.assertFalse((self.side / "memory").exists())
+        self.assertFalse((self.claude / "CLAUDE.md").exists())
+
+    def test_complete_side_is_left_untouched_and_install_proceeds(self):
+        self.install("claude")
+        (self.side / "rules/side.md").write_text("mine\n", encoding="utf-8")
+        self.install("claude")
+        self.assertEqual("mine\n", (self.side / "rules/side.md").read_text(encoding="utf-8"))
 
     def test_claude_block_appears_once_and_user_text_survives_roundtrip(self):
         original = "# my own rules\nkeep me\n"
@@ -280,6 +313,14 @@ class OpencodeScenarios:
         self.uninstall("opencode")
         self.assertFalse((self.opencode / "opencode.json").exists())
         self.assertFalse((self.opencode / "AGENTS.md").exists())
+
+    def test_empty_opencode_agents_md_not_created_by_install_survives_uninstall(self):
+        self.opencode.mkdir(parents=True)
+        (self.opencode / "AGENTS.md").write_text("", encoding="utf-8")
+        self.install("opencode")
+        self.uninstall("opencode")
+        self.assertTrue((self.opencode / "AGENTS.md").is_file())
+        self.assertEqual("", (self.opencode / "AGENTS.md").read_text(encoding="utf-8"))
 
 
 @POSIX_ONLY
