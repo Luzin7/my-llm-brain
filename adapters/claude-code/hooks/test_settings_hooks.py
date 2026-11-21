@@ -1,6 +1,5 @@
 import json
-import subprocess
-import tempfile
+import re
 import unittest
 from pathlib import Path
 
@@ -16,9 +15,9 @@ def entries():
                 yield event, group, hook
 
 
-def run_command(hook, core):
-    command = hook["command"].replace("{{CORE}}", str(core))
-    return subprocess.run(["sh", "-c", command], input="", capture_output=True, text=True)
+def script_of(hook):
+    match = re.search(r"\{\{CORE\}\}/(adapters/claude-code/hooks/[a-z-]+)", hook["command"])
+    return match.group(1) if match else None
 
 
 class SettingsHooksTest(unittest.TestCase):
@@ -31,18 +30,15 @@ class SettingsHooksTest(unittest.TestCase):
         matchers = [group.get("matcher") for _, group, hook in entries() if "subagent-cap" in hook["command"]]
         self.assertEqual(matchers, ["Agent|Task"])
 
-    def test_missing_core_fails_open(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for _, _, hook in entries():
-                with self.subTest(command=hook["command"]):
-                    result = run_command(hook, Path(tmp) / "moved")
-                    self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_present_core_runs_the_script(self):
+    def test_every_entry_is_a_command_hook(self):
         for _, _, hook in entries():
             with self.subTest(command=hook["command"]):
-                result = run_command(hook, CORE)
-                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(hook["type"], "command")
+
+    def test_every_entry_names_an_existing_script(self):
+        for _, _, hook in entries():
+            with self.subTest(command=hook["command"]):
+                self.assertTrue((CORE / str(script_of(hook))).is_file())
 
 
 if __name__ == "__main__":

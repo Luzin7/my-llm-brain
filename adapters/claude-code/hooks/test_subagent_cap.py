@@ -1,10 +1,16 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "tools"))
+
+from testlib.isolation import isolated_env, symlink_or_skip  # noqa: E402
 
 SCRIPT = Path(__file__).with_name("subagent-cap")
 
@@ -23,16 +29,15 @@ class SubagentCapTest(unittest.TestCase):
         self.config = Path(self._tmp.name) / "config"
 
     def env(self, cap=None, config=None):
-        env = dict(os.environ)
+        env = isolated_env(Path(self._tmp.name) / "profile", CLAUDE_CONFIG_DIR=str(config or self.config))
         env.pop("SUBAGENT_CAP", None)
-        env["CLAUDE_CONFIG_DIR"] = str(config or self.config)
         if cap is not None:
             env["SUBAGENT_CAP"] = str(cap)
         return env
 
     def run_hook(self, stdin, **kw):
         return subprocess.run(
-            [str(SCRIPT)], input=stdin, capture_output=True, text=True, env=self.env(**kw)
+            [sys.executable, str(SCRIPT)], input=stdin, capture_output=True, text=True, env=self.env(**kw)
         )
 
     def call(self, n, **kw):
@@ -85,7 +90,7 @@ class SubagentCapTest(unittest.TestCase):
         self.call(24)
         procs = [
             subprocess.Popen(
-                [str(SCRIPT)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                [sys.executable, str(SCRIPT)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True, env=self.env(),
             )
             for _ in range(2)

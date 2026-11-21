@@ -1,21 +1,26 @@
 import json
-import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "tools"))
+
+from testlib.isolation import isolated_env, symlink_or_skip  # noqa: E402
 
 SCRIPT = Path(__file__).with_name("maestro-guard")
 
 
 def run(payload, config=None, raw=None):
-    env = dict(os.environ)
-    env.pop("CLAUDE_CONFIG_DIR", None)
-    if config is not None:
-        env["CLAUDE_CONFIG_DIR"] = str(config)
-        env["HOME"] = str(config)
     stdin = raw if raw is not None else json.dumps(payload)
-    return subprocess.run([str(SCRIPT)], input=stdin, capture_output=True, text=True, env=env)
+    with tempfile.TemporaryDirectory() as profile:
+        env = isolated_env(profile)
+        env.pop("CLAUDE_CONFIG_DIR", None)
+        if config is not None:
+            env.update(CLAUDE_CONFIG_DIR=str(config), HOME=str(config), USERPROFILE=str(config))
+        return subprocess.run([sys.executable, str(SCRIPT)], input=stdin, capture_output=True, text=True, env=env)
 
 
 def main_call(tool, **tool_input):
@@ -78,7 +83,7 @@ class MaestroGuardTest(unittest.TestCase):
     def test_main_write_memory_symlink_escape_blocked(self):
         memory = self.tmp / "notes" / "memory"
         memory.mkdir(parents=True)
-        (memory / "link").symlink_to(self.tmp)
+        symlink_or_skip(memory / "link", self.tmp)
         self.with_paths("maestro-guard.paths", memory)
         self.assertBlocked(main_call("Write", file_path=str(memory / "link" / "x.md")))
 
@@ -167,7 +172,7 @@ class MaestroGuardTest(unittest.TestCase):
         for name in ["memory", "tasks", "other"]:
             (vault / name).mkdir(parents=True)
         self.with_paths("maestro-guard.grep-paths", vault / "memory", "~/vault/tasks")
-        (self.config / "vault").symlink_to(vault)
+        symlink_or_skip(self.config / "vault", vault)
         return vault
 
     def test_main_grep_allowed_roots(self):
@@ -178,7 +183,7 @@ class MaestroGuardTest(unittest.TestCase):
 
     def test_main_grep_elsewhere_blocked(self):
         vault = self.with_grep_roots()
-        (vault / "memory" / "link").symlink_to(vault / "other")
+        symlink_or_skip(vault / "memory" / "link", vault / "other")
         for path in [
             vault / "other",
             vault,
@@ -207,10 +212,10 @@ class MaestroGuardTest(unittest.TestCase):
     def test_default_config_dir_is_dot_claude_under_home(self):
         (self.config / ".claude").mkdir()
         (self.config / ".claude" / "maestro-guard.off").touch()
-        env = dict(os.environ, HOME=str(self.config))
+        env = isolated_env(self.tmp / "profile", HOME=str(self.config), USERPROFILE=str(self.config))
         env.pop("CLAUDE_CONFIG_DIR", None)
         result = subprocess.run(
-            [str(SCRIPT)], input=json.dumps(main_call("Edit", file_path="/x")),
+            [sys.executable, str(SCRIPT)], input=json.dumps(main_call("Edit", file_path="/x")),
             capture_output=True, text=True, env=env,
         )
         self.assertEqual(result.returncode, 0, result.stderr)

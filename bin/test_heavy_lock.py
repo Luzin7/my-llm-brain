@@ -6,13 +6,18 @@ import time
 import unittest
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+
+from testlib.isolation import isolated_env  # noqa: E402
+
 SCRIPT = Path(__file__).with_name("heavy-lock")
 
 
 def start(args, lock, timeout="30"):
-    env = dict(os.environ, HEAVY_LOCK_FILE=str(lock), HEAVY_LOCK_TIMEOUT=timeout)
+    env = isolated_env(lock.parent / "profile", HEAVY_LOCK_FILE=str(lock), HEAVY_LOCK_TIMEOUT=timeout)
     return subprocess.Popen(
-        [str(SCRIPT), *args], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        [sys.executable, str(SCRIPT), *args], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     )
 
 
@@ -56,13 +61,16 @@ class HeavyLockTest(unittest.TestCase):
         self.assertEqual((second.returncode, out.strip()), (0, "ok"))
 
     def default_path_env(self, **extra):
-        env = {key: value for key, value in os.environ.items() if key not in ("HEAVY_LOCK_FILE", "XDG_STATE_HOME")}
+        base = {key: value for key, value in os.environ.items() if key != "HEAVY_LOCK_FILE"}
+        env = isolated_env(Path(self.tmp.name) / "profile", base=base)
         env["HOME"] = str(Path(self.tmp.name) / "home")
+        env["USERPROFILE"] = env["HOME"]
+        env.pop("XDG_STATE_HOME")
         env.update(extra)
         return env
 
     def run_default(self, env):
-        return subprocess.run([str(SCRIPT), sys.executable, "-c", "pass"], env=env, capture_output=True, text=True)
+        return subprocess.run([sys.executable, str(SCRIPT), sys.executable, "-c", "pass"], env=env, capture_output=True, text=True)
 
     def test_default_lock_under_xdg_state_home(self):
         state = Path(self.tmp.name) / "state"

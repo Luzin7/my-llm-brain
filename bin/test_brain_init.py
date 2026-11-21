@@ -1,7 +1,5 @@
 import hashlib
 import json
-import os
-import pwd
 import shutil
 import subprocess
 import sys
@@ -10,7 +8,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+sys.path.insert(0, str(ROOT / "tools"))
+
+from testlib.isolation import isolated_env, refuse_real_profile, symlink_or_skip  # noqa: E402
+
 COPIED = ("bin", "core", "adapters", "examples", "templates")
 
 MATRIX = [("claude-code", 1), ("claude-code", 2), ("claude-code", 3),
@@ -49,10 +50,10 @@ class BrainInitCase(unittest.TestCase):
         self.opencode = self.xdg / "opencode"
         for path in (self.home, self.claude, self.xdg, self.opencode):
             path.mkdir()
-        if self.home.resolve() == REAL_HOME or REAL_HOME in self.tmp.parents:
-            raise SystemExit("refusing to run: HOME would be the real home")
-        self.env = {**os.environ, "HOME": str(self.home), "CLAUDE_CONFIG_DIR": str(self.claude),
-                    "XDG_CONFIG_HOME": str(self.xdg), "XDG_STATE_HOME": str(self.home / "state"), "TZ": "UTC"}
+        refuse_real_profile(self.tmp)
+        self.env = isolated_env(self.tmp / "profile", HOME=str(self.home), USERPROFILE=str(self.home),
+                                CLAUDE_CONFIG_DIR=str(self.claude), XDG_CONFIG_HOME=str(self.xdg),
+                                XDG_STATE_HOME=str(self.home / "state"))
         self.side = self.tmp / "side"
 
     def init(self, *args, root=ROOT, side=None):
@@ -208,7 +209,7 @@ class TestSymlinkedConfig(BrainInitCase):
         real.mkdir()
         for name, text in (("CLAUDE.md", "# mine\n"), ("settings.json", '{"theme": "dark"}')):
             (real / name).write_text(text)
-            (self.claude / name).symlink_to(real / name)
+            symlink_or_skip(self.claude / name, real / name)
         self.assertEqual(self.install("claude-code", 2).returncode, 0)
         for name in ("CLAUDE.md", "settings.json"):
             self.assertTrue((self.claude / name).is_symlink(), name)
@@ -272,7 +273,7 @@ class TestUninstall(BrainInitCase):
         real = self.tmp / "dotfiles"
         real.mkdir()
         (real / "CLAUDE.md").write_text("")
-        (self.claude / "CLAUDE.md").symlink_to(real / "CLAUDE.md")
+        symlink_or_skip(self.claude / "CLAUDE.md", real / "CLAUDE.md")
         self.assertEqual(self.install("claude-code", 2).returncode, 0)
         self.assertEqual(self.init("--uninstall").returncode, 0)
         self.assertTrue((self.claude / "CLAUDE.md").is_symlink())

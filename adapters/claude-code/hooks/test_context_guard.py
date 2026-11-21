@@ -1,22 +1,28 @@
 import json
-import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "tools"))
+
+from testlib.isolation import isolated_env, symlink_or_skip  # noqa: E402
 
 SCRIPT = Path(__file__).with_name("context-guard")
 
 
 def run(stdin, env_extra=None):
-    env = dict(os.environ)
-    env.pop("CONTEXT_GUARD_TOKENS", None)
-    env.update(env_extra or {})
     if not SCRIPT.exists():
         return subprocess.CompletedProcess([], 127, "", "context-guard missing")
-    return subprocess.run(
-        [str(SCRIPT)], input=stdin, capture_output=True, text=True, env=env
-    )
+    with tempfile.TemporaryDirectory() as profile:
+        env = isolated_env(profile)
+        env.pop("CONTEXT_GUARD_TOKENS", None)
+        env.update(env_extra or {})
+        return subprocess.run(
+            [sys.executable, str(SCRIPT)], input=stdin, capture_output=True, text=True, env=env
+        )
 
 
 def assistant(input_tokens, cache_read=0, cache_creation=0, sidechain=False):
