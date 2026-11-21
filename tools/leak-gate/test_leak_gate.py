@@ -314,6 +314,16 @@ class DiffMarkerTest(GateCase):
         self.commit_lines(["alice" + AT + "corp.com"])
         self.assertEqual(self.gate("--history").returncode, 1)
 
+    def test_github_web_committer_in_history_exits_0(self):
+        self.write("a.txt", "clean\n")
+        self.commit(env={"GIT_COMMITTER_EMAIL": "noreply" + AT + "github.com"})
+        self.assertEqual(self.gate("--history").returncode, 0)
+
+    def test_other_github_com_address_in_history_exits_1(self):
+        self.write("a.txt", "clean\n")
+        self.commit(env={"GIT_COMMITTER_EMAIL": "alice" + AT + "github.com"})
+        self.assertEqual(self.gate("--history").returncode, 1)
+
     def test_bare_email_in_tree_exits_1(self):
         self.write("a.txt", "x" + AT + "host.tld\n")
         self.assertEqual(self.gate().returncode, 1)
