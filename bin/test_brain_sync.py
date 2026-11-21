@@ -17,7 +17,7 @@ def join(*parts):
 
 class Fixture:
     def __init__(self, tmp):
-        self.home = Path(tmp)
+        self.home = Path(os.path.realpath(tmp))
         self.root = self.home / "core-root"
         (self.root / "bin" / "lib").mkdir(parents=True)
         for name in ("brain-sync", "secret-scan"):
