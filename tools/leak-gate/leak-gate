@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+import argparse
+import datetime
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+PINNED_GITLEAKS_VERSION = "8.30.1"
+PINNED_GITLEAKS_IMAGE = "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+GITLEAKS_LEAK_EXIT = 3
+GITLEAKS_TIMEOUT_SECONDS = 300
+GIT_TIMEOUT_SECONDS = 120
+PATTERNS_FILE = Path(__file__).resolve().parent / "patterns.txt"
+HISTORY_FORMAT = "@@COMMIT %H%n@@IDENT %an <%ae> %cn <%ce>%n%B"
+
+EXIT_CLEAN = 0
+EXIT_FINDINGS = 1
+EXIT_PRECONDITION = 2
+
+
+class GateError(Exception):
+    pass
+
+
+class DenylistUnavailableError(GateError):
+    def __init__(self, reason):
+        super().__init__(f"denylist unavailable: {reason}; set LEAK_DENYLIST to a non-empty file")
+
+
+class GitleaksUnavailableError(GateError):
+    def __init__(self, reason):
+        super().__init__(f"gitleaks unavailable: {reason}; set GITLEAKS_BIN to the pinned {PINNED_GITLEAKS_VERSION} binary or install docker")
+
+
+class ScanFailedError(GateError):
+    pass
+
+
+class Finding:
+    def __init__(self, kind, location):
+        self.kind = kind
+        self.location = location
+
+    def key(self):
+        return (self.kind, self.location)
+
+
+class Denylist:
+    def __init__(self, path, terms):
+        self.path = path
+        self.patterns = [re.compile(r"(?<!\w)" + re.escape(term) + r"(?!\w)", re.I) for term in terms]
+
+    @classmethod
+    def load(cls, raw_path):
+        if not raw_path:
+            raise DenylistUnavailableError("LEAK_DENYLIST is not set")
+        path = Path(raw_path).expanduser()
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            raise DenylistUnavailableError("file is missing or unreadable")
+        terms = [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+        if not terms:
+            raise DenylistUnavailableError("file has no terms")
+        return cls(path, terms)
+
+    def describe(self):
+        modified = datetime.datetime.fromtimestamp(self.path.stat().st_mtime, datetime.timezone.utc)
+        return f"denylist: {len(self.patterns)} terms, modified {modified:%Y-%m-%dT%H:%M:%SZ}"
+
+    def indexes_in(self, text):
+        return [number for number, pattern in enumerate(self.patterns, 1) if pattern.search(text)]
+
+    def redact(self, text):
+        for pattern in self.patterns:
+            text = pattern.sub("***", text)
+        return text
+
+
+class Patterns:
+    def __init__(self, deny, allow):
+        self.deny = deny
+        self.allow = allow
+
+    @classmethod
+    def load(cls, path):
+        deny, allow = [], {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            kind, name, regex = line.split("\t", 2)
+            if kind == "deny":
+                deny.append((name, re.compile(regex)))
+                continue
+            allow.setdefault(name, []).append(re.compile(regex))
+        return cls(deny, allow)
+
+    def names_in(self, text):
+        names = []
+        for name, pattern in self.deny:
+            allowed = self.allow.get(name, [])
+            if any(not any(rule.search(match.group(0)) for rule in allowed) for match in pattern.finditer(text)):
+                names.append(name)
+        return names
+
+
+def run_git(root, *args):
+    try:
+        result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, timeout=GIT_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ScanFailedError(f"git {args[0]} failed: {type(error).__name__}")
+    if result.returncode != 0:
+        raise ScanFailedError(f"git {args[0]} exited {result.returncode}")
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+def repository_root():
+    try:
+        result = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ScanFailedError("git is unavailable")
+    if result.returncode != 0:
+        raise ScanFailedError("not inside a git repository")
+    return Path(result.stdout.strip())
+
+
+def has_commits(root):
+    return bool(run_git(root, "rev-list", "--all", "-n", "1").strip())
+
+
+def scan_text(text, location, denylist, patterns, findings):
+    for number in denylist.indexes_in(text):
+        findings.append(Finding(f"denylist #{number}", location))
+    for name in patterns.names_in(text):
+        findings.append(Finding(f"pattern {name}", location))
+
+
+def scan_tree(root, denylist, patterns):
+    findings = []
+    listing = run_git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    for relative in filter(None, listing.split("\0")):
+        scan_text(relative, f"path {relative}", denylist, patterns, findings)
+        content = read_text_file(root / relative)
+        if content is None:
+            continue
+        for number, line in enumerate(content.splitlines(), 1):
+            scan_text(line, f"{relative}:{number}", denylist, patterns, findings)
+    return findings
+
+
+def read_text_file(path):
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if b"\0" in data:
+        return None
+    return data.decode("utf-8", errors="replace")
+
+
+def scan_history(root, denylist, patterns):
+    findings = []
+    if not has_commits(root):
+        return findings
+    log = run_git(root, "log", "--all", "-p", "--no-color", f"--format={HISTORY_FORMAT}")
+    commit = "unknown"
+    for line in log.splitlines():
+        if line.startswith("@@COMMIT "):
+            commit = line.split(" ", 1)[1][:10]
+            continue
+        scan_text(line, f"commit {commit}", denylist, patterns, findings)
+    return findings
+
+
+def gitleaks_command(root):
+    configured = os.environ.get("GITLEAKS_BIN")
+    if configured:
+        return [configured], root, []
+    docker = shutil.which("docker")
+    if not docker:
+        raise GitleaksUnavailableError("GITLEAKS_BIN is not set and docker is not on PATH")
+    user = f"{os.getuid()}:{os.getgid()}"
+    prefix = [docker, "run", "--rm", "--user", user, "-v", f"{root}:/repo:ro", PINNED_GITLEAKS_IMAGE]
+    return prefix, Path("/repo"), ["--no-banner"]
+
+
+def check_gitleaks_version(command):
+    try:
+        result = subprocess.run([*command, "version"], capture_output=True, text=True, timeout=GITLEAKS_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise GitleaksUnavailableError(f"cannot run version check ({type(error).__name__})")
+    if result.returncode != 0 or result.stdout.strip().lstrip("v") != PINNED_GITLEAKS_VERSION:
+        raise GitleaksUnavailableError(f"version is not the pinned {PINNED_GITLEAKS_VERSION}")
+
+
+def run_gitleaks(root, history, denylist):
+    command, target, extra = gitleaks_command(root)
+    check_gitleaks_version(command)
+    config = ["--config", str(Path(target) / ".gitleaks.toml")] if (root / ".gitleaks.toml").exists() else []
+    common = ["--redact", "--no-color", "--exit-code", str(GITLEAKS_LEAK_EXIT), *config, *extra]
+    scans = [["dir", str(target)]]
+    if history and has_commits(root):
+        scans.append(["git", "--log-opts=--all", str(target)])
+    findings, output = [], []
+    for scan in scans:
+        try:
+            result = subprocess.run([*command, scan[0], *common, *scan[1:]], capture_output=True, text=True, errors="replace", timeout=GITLEAKS_TIMEOUT_SECONDS)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise ScanFailedError(f"gitleaks {scan[0]} failed: {type(error).__name__}")
+        if result.returncode == GITLEAKS_LEAK_EXIT:
+            findings.append(Finding("gitleaks", f"{scan[0]} scan"))
+            output.append(denylist.redact(result.stdout + result.stderr))
+            continue
+        if result.returncode != 0:
+            raise ScanFailedError(f"gitleaks {scan[0]} exited {result.returncode}")
+    return findings, output
+
+
+def unique(findings):
+    seen, ordered = set(), []
+    for finding in findings:
+        if finding.key() in seen:
+            continue
+        seen.add(finding.key())
+        ordered.append(finding)
+    return ordered
+
+
+def report(findings, gitleaks_output, denylist):
+    for text in gitleaks_output:
+        print(text.rstrip())
+    for finding in findings:
+        print(denylist.redact(f"{finding.kind}: {finding.location}"))
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="Scan the tree (and with --history, all commits) for private or secret content.")
+    parser.add_argument("--history", action="store_true", help="also scan every commit reachable from any ref, including identities")
+    arguments = parser.parse_args(argv)
+    try:
+        denylist = Denylist.load(os.environ.get("LEAK_DENYLIST"))
+        patterns = Patterns.load(PATTERNS_FILE)
+        root = repository_root()
+        print(denylist.describe())
+        findings = scan_tree(root, denylist, patterns)
+        if arguments.history:
+            findings += scan_history(root, denylist, patterns)
+        gitleaks_findings, gitleaks_output = run_gitleaks(root, arguments.history, denylist)
+    except GateError as error:
+        print(f"leak-gate: {error}", file=sys.stderr)
+        return EXIT_PRECONDITION
+    findings = unique(findings + gitleaks_findings)
+    report(findings, gitleaks_output, denylist)
+    if findings:
+        print(f"leak-gate: {len(findings)} finding(s)", file=sys.stderr)
+        return EXIT_FINDINGS
+    print("leak-gate: clean")
+    return EXIT_CLEAN
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
