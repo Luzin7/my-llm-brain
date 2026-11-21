@@ -22,4 +22,4 @@ A skill is instructions plus sometimes scripts. Treat it like a dependency that 
 
 Keep the description specific (when to use, not what it is), keep the body as instructions for a worker, and never put secrets or personal data in it. See [customization.md](customization.md#adding-a-skill).
 
-Note: skills you install by hand are not tracked by the template's manifest, so `brain-init` leaves them alone.
+Note: the install and uninstall steps only touch files carrying the `my-llm-brain generated` marker, so skills you install by hand are left alone.

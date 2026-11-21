@@ -15,7 +15,8 @@ GITLEAKS_TIMEOUT_SECONDS = 300
 GIT_TIMEOUT_SECONDS = 120
 PATTERNS_FILE = Path(__file__).resolve().parent / "patterns.txt"
 REF_FORMAT = "@@REF %(refname)%0a%(contents)%0a%(taggername) %(taggeremail)"
-HISTORY_FORMAT = "@@COMMIT %H%n@@IDENT %an <%ae> %cn <%ce>%n%B"
+DIFF_MARKERS = ("+", "-", " ")
+HISTORY_FORMAT = "@@COMMIT %H%n@@IDENT %an <%ae> %cn <%ce>%n%B%n@@DIFF"
 
 EXIT_CLEAN = 0
 EXIT_FINDINGS = 1
@@ -174,10 +175,17 @@ def scan_history(root, denylist, patterns):
         return findings
     log = run_git(root, "log", "--all", "-p", "--no-color", f"--format={HISTORY_FORMAT}")
     commit = "unknown"
+    in_diff = False
     for line in log.splitlines():
         if line.startswith("@@COMMIT "):
             commit = line.split(" ", 1)[1][:10]
+            in_diff = False
             continue
+        if line == "@@DIFF":
+            in_diff = True
+            continue
+        if in_diff and line[:1] in DIFF_MARKERS:
+            line = line[1:]
         scan_text(line, f"commit {commit}", denylist, patterns, findings)
     return findings
 

@@ -1,0 +1,18 @@
+{
+  "name": "my-llm-brain",
+  "owner": {
+    "name": "Luzin7"
+  },
+  "plugins": [
+    {
+      "name": "brain",
+      "source": "./",
+      "description": "Role agents and the task-board skill of my-llm-brain."
+    },
+    {
+      "name": "brain-guards",
+      "source": "./adapters/claude-code/guards",
+      "description": "Optional L3 guard hooks of my-llm-brain."
+    }
+  ]
+}

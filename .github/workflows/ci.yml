@@ -33,23 +33,81 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: bin tests
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 -m unittest discover -s bin -p 'test_*.py'
-          python3 -m unittest bin/test_brain_init.py
       - name: leak-gate tests
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 -m unittest tools/leak-gate/test_leak_gate.py
       - name: hook tests
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s adapters/claude-code/hooks -p 'test_*.py'
+          python3 -m unittest discover -s adapters/claude-code/guards -p 'test_*.py'
+      - name: build-dist
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python tools/build-dist --check
+          python -m unittest tools/test_build_dist.py
       - name: docs
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           tools/docs/check-links
-          tools/docs/run-quickstart
+      - name: install doc
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python3 tools/test_install_doc.py
+
+  python-windows:
+    name: python ${{ matrix.python }} on windows-latest
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "0"
+    defaults:
+      run:
+        shell: pwsh -NoProfile -Command "$ErrorActionPreference='Stop'; $PSNativeCommandUseErrorActionPreference=$true; . '{0}'"
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+      # leak-gate tests are not run on Windows: the gate is a POSIX-only maintainer tool and its CI job runs on ubuntu
+      - name: bin tests
+        if: ${{ !cancelled() }}
+        run: |
+          python -m unittest discover -s bin -p 'test_*.py'
+      - name: hook tests
+        if: ${{ !cancelled() }}
+        run: python -m unittest discover -s adapters/claude-code/guards -p 'test_*.py'
+      - name: build-dist
+        if: ${{ !cancelled() }}
+        run: |
+          python tools/build-dist --check
+          python -m unittest tools/test_build_dist.py
+      - name: plugin tests
+        if: ${{ !cancelled() }}
+        run: |
+          Set-Location adapters/opencode
+          node --test 'plugins/*.test.mjs' 'plugins/*/*.test.mjs'
+      - name: install doc
+        if: ${{ !cancelled() }}
+        run: python tools/test_install_doc.py
 
   node:
     name: opencode plugins on ${{ matrix.os }}
@@ -70,7 +128,11 @@ jobs:
         run: |
           set -euo pipefail
           cd adapters/opencode
-          node --test 'plugins/*.test.mjs'
+          node --test 'plugins/*.test.mjs' 'plugins/*/*.test.mjs'
+      - name: install doc
+        run: |
+          set -euo pipefail
+          python3 tools/test_install_doc.py
 
   leak-gate:
     runs-on: ubuntu-latest

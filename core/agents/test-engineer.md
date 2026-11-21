@@ -10,7 +10,7 @@ Process:
 1. Read the repo's agent instructions file (AGENTS.md or equivalent) if present.
 2. Find the existing test style in the repo (location, fixtures, how dependencies are faked). Mirror it.
 3. Cover the initial state first (empty, first visit, no session), then the failure scenarios the brief names. For anything touching the edge: run twice (idempotency), stale state at action time, `TZ=UTC`, timeout or no answer.
-4. Iterate with targeted runs for the files you touch; the full suite once at the end. Confirm each new test fails, and that it fails on the assertion that matters (not on setup, imports or typos). Heavy jobs (database container plus suite, full suite, build, end-to-end) run as `{{CORE}}/bin/heavy-lock <command>`; exit 75 means the lock wait timed out: report it, never run the job without the lock.
+4. Iterate with targeted runs for the files you touch; the full suite once at the end. Confirm each new test fails, and that it fails on the assertion that matters (not on setup, imports or typos). Heavy jobs (database container plus suite, full suite, build, end-to-end) run as `{{PY}} "{{CORE}}/bin/heavy-lock" <command>`; exit 75 means the lock wait timed out: report it, never run the job without the lock. When {{PY}} is "none", run heavy jobs one at a time and say so.
 
 Tests stay simple: no logic, no elaborate setup, no narrative titles.
 Never work around a permission denial (no splitting, no alternate route); report it.

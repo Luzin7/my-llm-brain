@@ -99,6 +99,7 @@ def max_index_bytes(argv):
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     problems = lint(os.path.expanduser(sys.argv[1]), max_index_bytes(sys.argv))
     print("\n".join(problems) or "OK")
     sys.exit(1 if problems else 0)

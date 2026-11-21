@@ -1,7 +1,7 @@
 import re
 
 TOKEN = re.compile(r"\{\{[^{}\n]*\}\}")
-KNOWN = ("CORE", "SIDE", "CONFIG_DIR")
+KNOWN = ("CORE", "SIDE", "PY", "CONFIG_DIR")
 
 
 class UnknownTokenError(Exception):

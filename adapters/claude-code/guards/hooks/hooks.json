@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${user_config.python}",
+            "args": [
+              "-I",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"
+            ],
+            "timeout": 10,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${user_config.python}",
+            "args": [
+              "-I",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/maestro_guard.py",
+              "--side",
+              "${user_config.side}"
+            ],
+            "timeout": 10,
+            "onFailure": "continue"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${user_config.python}",
+            "args": [
+              "-I",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/subagent_cap.py"
+            ],
+            "timeout": 10,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${user_config.python}",
+            "args": [
+              "-I",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/context_guard.py"
+            ],
+            "timeout": 10,
+            "onFailure": "continue"
+          }
+        ]
+      }
+    ]
+  }
+}

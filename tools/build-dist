@@ -1,0 +1,282 @@
+#!/usr/bin/env python3
+"""Generate the committed dist/ tree and the Claude Code plugin manifests from the core.
+
+Usage: build-dist [--check]
+
+Without flags, writes dist/ and .claude-plugin/ (stale dist files are removed).
+--check writes nothing and exits 1 when any generated file differs from the tree.
+"""
+import json
+import subprocess
+import sys
+from pathlib import Path, PureWindowsPath
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "bin" / "lib"))
+
+import rendercore  # noqa: E402
+import tokens  # noqa: E402
+
+DIST = ROOT / "dist"
+CONFIG = ROOT / "tools" / "dist.config.json"
+CODEX_SOURCE = ROOT / "adapters" / "codex" / "block.md"
+AGENTS_MD_SOURCES = ROOT / "adapters" / "agents-md"
+MARKER = "my-llm-brain generated: dist/{path}"
+PLUGIN_TOKENS = {"CORE": "${CLAUDE_PLUGIN_ROOT}", "SIDE": "${user_config.side}", "PY": "${user_config.python}"}
+LITERAL_TOKENS = {name: "{{" + name + "}}" for name in ("CORE", "SIDE", "PY")}
+CODEX_PREFIX = "brain-"
+
+
+class BuildDistError(SystemExit):
+    def __init__(self, detail):
+        super().__init__(f"{type(self).__name__}: {detail}")
+
+
+class StaleDistError(BuildDistError):
+    pass
+
+
+class UsageError(BuildDistError):
+    pass
+
+
+class SecretFoundError(BuildDistError):
+    pass
+
+
+class InvalidConfigError(BuildDistError):
+    pass
+
+
+class TomlControlCharacterError(BuildDistError):
+    pass
+
+
+class Substitution:
+    def __init__(self, values):
+        self.values = values
+
+    def text(self, text, source):
+        try:
+            return tokens.render_tokens(text, self.values, source)
+        except tokens.UnknownTokenError as error:
+            raise rendercore.UnknownTokenError(error)
+
+
+def load_config():
+    try:
+        return json.loads(CONFIG.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise InvalidConfigError(f"{CONFIG.name}: {type(error).__name__}")
+
+
+def mark_markdown(text, path):
+    return f"<!-- {MARKER.format(path=path)} -->\n{text}"
+
+
+def mark_frontmatter(text, path):
+    opener, _, rest = text.partition("\n")
+    return f"{opener}\n# {MARKER.format(path=path)}\n{rest}"
+
+
+def encode(text):
+    return text.encode("utf-8")
+
+
+def bundle(sources, substitution, label):
+    parts = [rendercore.core_text(name).strip() for name in sources]
+    return substitution.text("\n\n".join(parts) + "\n", label)
+
+
+def agent_files(target, config, substitution):
+    files = {}
+    for name, text in rendercore.agent_files(config).items():
+        path = f"{target}/agents/{name}"
+        files[path] = encode(mark_frontmatter(substitution.text(text, f"agent {name}"), path))
+    return files
+
+
+def skill_files(target, substitution):
+    files = {}
+    for name, data in rendercore.skill_files().items():
+        path = f"{target}/skills/{PureWindowsPath(name).as_posix()}"
+        text = substitution.text(data.decode("utf-8"), f"skill {name}")
+        files[path] = encode(mark_frontmatter(text, path))
+    return files
+
+
+def toml_string(value):
+    if any(ord(char) < 32 and char not in "\n\t" for char in value):
+        raise TomlControlCharacterError("control character in a TOML value")
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def toml_multiline(value):
+    if any(ord(char) < 32 and char not in "\n\t" for char in value):
+        raise TomlControlCharacterError("control character in a TOML value")
+    escaped = value.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+    return f'"""\n{escaped}"""'
+
+
+def codex_agents(config, substitution):
+    files = {}
+    for name, (header, body) in rendercore.agent_documents(config).items():
+        agent = codex_name(name)
+        path = f"codex/agents/{agent}.toml"
+        lines = [f"# {MARKER.format(path=path)}", f"name = {toml_string(agent)}"]
+        lines.append(f"description = {toml_string(header['description'])}")
+        for key in sorted(set(header) - {"name", "description"}):
+            lines.append(f"{key} = {toml_string(str(header[key]))}")
+        instructions = substitution.text(body, f"codex agent {name}")
+        lines.append(f"developer_instructions = {toml_multiline(instructions)}")
+        files[path] = encode("\n".join(lines) + "\n")
+    return files
+
+
+def codex_name(role):
+    return role if role.startswith(CODEX_PREFIX) else f"{CODEX_PREFIX}{role}"
+
+
+def first_sentence(text):
+    return text.split(". ")[0].rstrip(".") + "."
+
+
+def codex_block(config, substitution):
+    roles = [
+        f"- `{codex_name(name)}`: {first_sentence(header['description'])}"
+        for name, (header, _) in rendercore.agent_documents(config).items()
+    ]
+    parts = [
+        rendercore.core_text("rules/posture.md").strip(),
+        CODEX_SOURCE.read_text(encoding="utf-8").strip(),
+        "## Roles (dispatch the matching agent)\n" + "\n".join(roles),
+    ]
+    text = substitution.text("\n\n".join(parts) + "\n", "codex block")
+    return {"codex/AGENTS.block.md": encode(mark_markdown(text, "codex/AGENTS.block.md"))}
+
+
+def agents_md(config, substitution):
+    parts = [rendercore.core_text(name).strip() for name in config["bundles"]["agents-md"]]
+    for name in ("protocol.md", "role-cards.md"):
+        parts.append((AGENTS_MD_SOURCES / name).read_text(encoding="utf-8").strip())
+    text = substitution.text("\n\n".join(parts) + "\n", "agents-md file")
+    return {"agents-md/AGENTS.md": encode(mark_markdown(text, "agents-md/AGENTS.md"))}
+
+
+def brain_file(target, config, substitution):
+    path = f"{target}/BRAIN.md"
+    text = bundle(config["bundles"][target], substitution, f"{target} BRAIN.md")
+    return {path: encode(mark_markdown(text, path))}
+
+
+GUARDS_PLUGIN = {
+    "name": "brain-guards",
+    "source": "./adapters/claude-code/guards",
+    "description": "Optional L3 guard hooks of my-llm-brain.",
+}
+
+
+def plugin_manifests(config, claude_agents):
+    plugin = config["plugin"]
+    manifest = {
+        "name": plugin["name"],
+        "version": plugin["version"],
+        "description": plugin["description"],
+        "agents": [f"./dist/{path}" for path in sorted(claude_agents)],
+        "skills": "./dist/claude-code/skills",
+        "userConfig": {
+            "side": {
+                "type": "string",
+                "title": "Side directory",
+                "description": "Directory holding your private rules, memory and tasks.",
+                "default": "~/my-brain",
+            },
+            "python": {
+                "type": "string",
+                "title": "Python command",
+                "description": "Python 3.9+ command used by the optional scripts.",
+                "default": "python3",
+            },
+        },
+    }
+    marketplace = {
+        "name": plugin["marketplace"],
+        "owner": {"name": plugin["owner"]},
+        "plugins": [
+            {"name": plugin["name"], "source": "./", "description": plugin["description"]},
+            GUARDS_PLUGIN,
+        ],
+    }
+    return {
+        ".claude-plugin/plugin.json": encode(json.dumps(manifest, indent=2) + "\n"),
+        ".claude-plugin/marketplace.json": encode(json.dumps(marketplace, indent=2) + "\n"),
+    }
+
+
+def build():
+    config = load_config()
+    plugin = Substitution(PLUGIN_TOKENS)
+    literal = Substitution(LITERAL_TOKENS)
+    files = {}
+    claude_agents = agent_files("claude-code", config["claude-code"], plugin)
+    files.update(claude_agents)
+    files.update(skill_files("claude-code", plugin))
+    files.update(brain_file("claude-code", config, literal))
+    files.update(agent_files("opencode", config["opencode"], literal))
+    files.update(skill_files("opencode", literal))
+    files.update(brain_file("opencode", config, literal))
+    files.update(codex_agents(config["codex"], literal))
+    files.update(codex_block(config["codex"], literal))
+    files.update(agents_md(config, literal))
+    manifests = plugin_manifests(config, claude_agents)
+    return {**{f"dist/{path}": data for path, data in files.items()}, **manifests}
+
+
+def existing_dist():
+    if not DIST.is_dir():
+        return set()
+    return {str(path.relative_to(ROOT).as_posix()) for path in DIST.rglob("*") if path.is_file()}
+
+
+def differences(files):
+    stale = []
+    for name, data in sorted(files.items()):
+        target = ROOT / name
+        if not target.is_file() or target.read_bytes() != data:
+            stale.append(f"outdated {name}")
+    stale.extend(f"unexpected {name}" for name in sorted(existing_dist() - set(files)))
+    return stale
+
+
+def leak_check():
+    scanner = ROOT / "bin" / "secret-scan"
+    if subprocess.run([sys.executable, str(scanner), str(ROOT / "core")]).returncode != 0:
+        raise SecretFoundError("secret found in core")
+
+
+def write(files):
+    for name in sorted(existing_dist() - set(files)):
+        (ROOT / name).unlink()
+    for name, data in files.items():
+        target = ROOT / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+
+
+def main(argv):
+    flags = argv[1:]
+    if flags not in ([], ["--check"]):
+        raise UsageError("usage: build-dist [--check]")
+    leak_check()
+    files = build()
+    if not flags:
+        write(files)
+        return
+    stale = differences(files)
+    if stale:
+        raise StaleDistError("run tools/build-dist and commit:\n" + "\n".join(stale))
+
+
+if __name__ == "__main__":
+    main(sys.argv)

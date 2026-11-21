@@ -289,5 +289,45 @@ class PatternsTest(GateCase):
         self.assertEqual(self.gate("--history").returncode, 1)
 
 
+AT = "@"
+
+
+class DiffMarkerTest(GateCase):
+    def commit_lines(self, lines):
+        self.write("a.txt", "\n".join(lines) + "\n")
+        self.commit()
+
+    def test_added_decorator_in_history_exits_0(self):
+        self.commit_lines(["@unittest.skipIf(True, 'x')"])
+        self.assertEqual(self.gate("--history").returncode, 0)
+
+    def test_removed_decorator_in_history_exits_0(self):
+        self.commit_lines(["@functools.wraps(f)", "keep"])
+        self.commit_lines(["keep"])
+        self.assertEqual(self.gate("--history").returncode, 0)
+
+    def test_email_after_added_marker_in_history_exits_1(self):
+        self.commit_lines(["contact user" + AT + "corp-example.io"])
+        self.assertEqual(self.gate("--history").returncode, 1)
+
+    def test_bare_email_after_added_marker_in_history_exits_1(self):
+        self.commit_lines(["alice" + AT + "corp.com"])
+        self.assertEqual(self.gate("--history").returncode, 1)
+
+    def test_github_web_committer_in_history_exits_0(self):
+        self.write("a.txt", "clean\n")
+        self.commit(env={"GIT_COMMITTER_EMAIL": "noreply" + AT + "github.com"})
+        self.assertEqual(self.gate("--history").returncode, 0)
+
+    def test_other_github_com_address_in_history_exits_1(self):
+        self.write("a.txt", "clean\n")
+        self.commit(env={"GIT_COMMITTER_EMAIL": "alice" + AT + "github.com"})
+        self.assertEqual(self.gate("--history").returncode, 1)
+
+    def test_bare_email_in_tree_exits_1(self):
+        self.write("a.txt", "x" + AT + "host.tld\n")
+        self.assertEqual(self.gate().returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

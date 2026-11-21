@@ -12,7 +12,7 @@ Notes live in {{SIDE}}/memory. The always-loaded index is {{SIDE}}/memory/MEMORY
 - A rule has one canonical home: the rules files. Notes hold facts and history, never a second wording of a rule. A new correction edits the rule line first; the note gets at most one dated example.
 - Update an existing note before creating one. Fix or delete notes that became wrong.
 - Project notes carry Status, Next and Sunset lines and move to `memory/archive/` at sunset.
-- After every memory write run {{CORE}}/bin/memory-lint {{SIDE}}/memory; a non-zero exit blocks the commit.
+- After every memory write run `{{PY}} "{{CORE}}/bin/memory-lint" "{{SIDE}}/memory"`; a non-zero exit blocks the commit. When {{PY}} is "none", check the layout above by hand.
 
 ## Tiers
 1. Always loaded: the rules files and the memory index.

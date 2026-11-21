@@ -1,0 +1,19 @@
+{
+  "name": "brain-guards",
+  "version": "2.0.0",
+  "description": "Optional L3 guards of my-llm-brain: orchestrate-only main session, subagent fan-out cap, context-size nudge.",
+  "userConfig": {
+    "side": {
+      "type": "string",
+      "title": "Side directory",
+      "description": "Directory holding your private rules, memory and tasks.",
+      "default": "~/my-brain"
+    },
+    "python": {
+      "type": "string",
+      "title": "Python command",
+      "description": "Python 3.9+ command used by the guard hooks.",
+      "default": "python3"
+    }
+  }
+}

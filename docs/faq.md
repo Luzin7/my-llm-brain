@@ -10,15 +10,19 @@ L2 on Claude Code or opencode. L1 on tools that read one instruction file. Add L
 
 ## Will it overwrite my existing configuration?
 
-No. `brain-init` adds one import line to your Claude Code `CLAUDE.md` (with a timestamped backup), merges only absent hook entries (backup, atomic write) and sets `autoMemoryDirectory` only if unset, with a warning otherwise. It refuses to overwrite a hand-written opencode `AGENTS.md` and never edits `opencode.jsonc`. Preview anything with `--dry-run`.
+No. The install adds one marked block (`my-llm-brain:start` to `my-llm-brain:end`) to your instruction file, backs the file up first as `<file>.bak-<timestamp>`, and never edits text outside the markers. It sets `autoMemoryDirectory` only if the key is absent, creates `opencode.json` only if you have none, and skips a file of the same name that it did not generate. Ask for the plan first: step 3 of [INSTALL.md](../INSTALL.md) lists every file and backup before anything is written.
 
 ## How do I undo an install?
 
-Run `bin/brain-init <side> --uninstall` (add `--dry-run` to preview). It removes the files listed in the manifests, the import line in `CLAUDE.md`, this template's hook entries, `maestro-guard.paths`, `maestro-guard.grep-paths`, the `state/subagent-cap` counters, and `autoMemoryDirectory` only if it still points at this side's memory. Your other edits stay, and your side folder is untouched. Any removed file whose content differs from what the core renders (or every removed file when the core can no longer render them) is first copied to `<side>/.generated/uninstall-backups/<timestamp>/` and the path is printed. If `CLAUDE.md` held only our import line and is a symlink or lives outside the config dir, it is emptied instead of deleted. It works even if the repo was moved. For agents-md there is no manifest: the AGENTS.md target is simply deleted.
+Run the uninstall section of [INSTALL.md](../INSTALL.md). Ownership is proven per file at removal time: a marked block is cut out, a copy is deleted only if it still equals the clone's `dist/` file and carries the generated marker, and an edited copy is renamed to `.bak-<timestamp>`, never deleted. Your side folder is never touched.
 
 ## I moved the repo. Now what?
 
-`bin/brain-init <side> --verify` exits 1 and names the dead path. Moving the repo means uninstall, then install: run `bin/brain-init <side> --uninstall` from the new location (it works without the old path), then re-run `brain-init` with the same arguments.
+Claude Code reads the clone in place, and the Codex, opencode and AGENTS.md paths are written into the files at install time, so a moved clone leaves dead paths. From the new location, run the install blocks again (paths and the Codex `rev` are refreshed) and then the verify blocks, which name any dead path.
+
+## I installed v1. What now?
+
+v1 is tag `v1`. The install detects its manifests and stops with `STOP`; uninstall v1 from that tag first (its README), then start [INSTALL.md](../INSTALL.md).
 
 ## Why does the maestro refuse to edit files?
 
@@ -34,7 +38,7 @@ Yes. Set it in `preferences.md`. Agent-facing files stay in English; replies and
 
 ## Does it work on Windows?
 
-Through WSL only.
+Claude Code, Codex and AGENTS.md-only tools run natively with the PowerShell blocks of INSTALL.md. The Claude Code guards are UNVERIFIED on Windows until a real Claude Code run (python resolution via `${user_config.python}`); CI proves the scripts only. To fix it, set the `python` plugin option to an absolute `python.exe`. opencode runs through WSL with the POSIX blocks.
 
 ## Where do my notes go, and are they private?
 

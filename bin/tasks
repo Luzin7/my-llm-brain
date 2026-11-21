@@ -33,7 +33,12 @@ class UnknownStatusError(TasksError):
 
 
 def today():
-    return datetime.date.today().isoformat()
+    return datetime.datetime.now().astimezone().date().isoformat()
+
+
+def write_text(path, text):
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
 
 
 def slugify(title):
@@ -42,7 +47,7 @@ def slugify(title):
 
 def read_task(path):
     try:
-        header, _ = frontmatter.parse(path.read_text())
+        header, _ = frontmatter.parse(path.read_text(encoding="utf-8"))
     except frontmatter.FrontmatterError as error:
         raise InvalidTaskFileError(f"{path.name}: {type(error).__name__}: {error}")
     for key in ("id", "title"):
@@ -65,7 +70,7 @@ def new_task(directory, title):
     header = {"id": task_id, "title": title, "status": "todo", "created": today(), "updated": today(), "proof": []}
     body = f"## Goal\n\n## Done criteria\n\n## Log\n- {today()} created\n"
     path = directory / f"{task_id}-{slugify(title)}.md"
-    path.write_text(frontmatter.render(header, body))
+    write_text(path, frontmatter.render(header, body))
     print(path)
 
 
@@ -89,7 +94,7 @@ def build_board(directory):
         if status == "done":
             items = items[-DONE_VISIBLE:]
         lines += [f"## {status} ({len(columns[status])})", *items, ""]
-    (directory / "BOARD.md").write_text("\n".join(lines))
+    write_text(directory / "BOARD.md", "\n".join(lines))
 
 
 def main(argv):
@@ -109,4 +114,6 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
     main(sys.argv)

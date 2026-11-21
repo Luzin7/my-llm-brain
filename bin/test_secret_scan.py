@@ -91,6 +91,11 @@ class ScanLineTest(unittest.TestCase):
             with self.subTest(name):
                 self.assertTrue(self.hits_for(line))
 
+    def test_flagged_line_after_non_ascii_text(self):
+        path = Path(self.tmp.name) / "note.md"
+        path.write_text("ação — ü\n" + join("pass", "word", "=", PASSWORD_VALUE) + "\n", encoding="utf-8")
+        self.assertEqual(len(scanner.scan([path])), 1)
+
     def test_clean(self):
         for name, line in CLEAN_LINES.items():
             with self.subTest(name):

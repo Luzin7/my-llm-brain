@@ -1,0 +1,34 @@
+{
+  "name": "brain",
+  "version": "2.0.0",
+  "description": "Role agents and the task-board skill of my-llm-brain.",
+  "agents": [
+    "./dist/claude-code/agents/architect.md",
+    "./dist/claude-code/agents/backend-dev.md",
+    "./dist/claude-code/agents/brain-keeper.md",
+    "./dist/claude-code/agents/debugger.md",
+    "./dist/claude-code/agents/edge-auditor.md",
+    "./dist/claude-code/agents/frontend-dev.md",
+    "./dist/claude-code/agents/operator.md",
+    "./dist/claude-code/agents/researcher.md",
+    "./dist/claude-code/agents/reviewer.md",
+    "./dist/claude-code/agents/scout.md",
+    "./dist/claude-code/agents/scribe.md",
+    "./dist/claude-code/agents/test-engineer.md"
+  ],
+  "skills": "./dist/claude-code/skills",
+  "userConfig": {
+    "side": {
+      "type": "string",
+      "title": "Side directory",
+      "description": "Directory holding your private rules, memory and tasks.",
+      "default": "~/my-brain"
+    },
+    "python": {
+      "type": "string",
+      "title": "Python command",
+      "description": "Python 3.9+ command used by the optional scripts.",
+      "default": "python3"
+    }
+  }
+}

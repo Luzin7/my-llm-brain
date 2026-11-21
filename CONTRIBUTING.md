@@ -11,24 +11,26 @@ Changes to the template are welcome. The rules of the road: tests first, the lea
 
 ## Tests
 
-Run everything before you push. Never point tests at your real home: the init tests abort if `HOME` is the real one.
+Run everything before you push. Never point tests at your real home: the install tests run in a throwaway profile and check that the real one is untouched.
 
 ```bash
 TZ=UTC python3 -m unittest discover -s bin -p 'test_*.py' -v
-TZ=UTC python3 -m unittest discover -s adapters/claude-code/hooks -p 'test_*.py' -v
+TZ=UTC python3 -m unittest discover -s adapters/claude-code/guards -p 'test_*.py' -v
 python3 -m unittest tools/leak-gate/test_leak_gate.py -v
-(cd adapters/opencode && node --test 'plugins/*.test.mjs')
+(cd adapters/opencode && node --test 'plugins/*.test.mjs' 'plugins/*/*.test.mjs')
 tools/docs/check-links
-tools/docs/run-quickstart
+python3 tools/test_build_dist.py
+python3 tools/test_install_doc.py
+python3 tools/build-dist --check
 ```
 
-`tools/docs/check-links` checks that local links and anchors in the docs resolve. `tools/docs/run-quickstart` extracts the README quickstart and runs it with a temporary `HOME`, `CLAUDE_CONFIG_DIR` and `XDG_CONFIG_HOME`; it must exit 0 in well under five minutes. If you change `brain-init` behavior, change the quickstart text with it.
+`tools/docs/check-links` checks that local links and anchors in the docs resolve. `tools/test_install_doc.py` executes the `install-test` blocks of `INSTALL.md` (POSIX everywhere, PowerShell where `pwsh` exists) against a temporary profile; if you change install behavior, change `INSTALL.md` and its blocks together. `dist/` is generated: run `python3 tools/build-dist` after touching `core/` or `adapters/` and commit the result.
 
 New behavior gets a failing test first, seen failing for the right reason. A test is never loosened to pass.
 
 ## Review
 
-Open a pull request with the diff, the commands you ran and their results. A reviewer checks the diff against these rules, re-runs the tests and confirms no assertion was weakened. Changes that touch install wiring (`brain-init`, hooks, plugins) or CI also get an edge review: runs twice, stops halfway, stale state, timeouts, "nothing" versus "broken", and where it really runs. Merging is the maintainer's call.
+Open a pull request with the diff, the commands you ran and their results. A reviewer checks the diff against these rules, re-runs the tests and confirms no assertion was weakened. Changes that touch install wiring (`INSTALL.md`, hooks, plugins) or CI also get an edge review: runs twice, stops halfway, stale state, timeouts, "nothing" versus "broken", and where it really runs. Merging is the maintainer's call.
 
 ## Leak gate
 
