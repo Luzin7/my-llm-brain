@@ -25,6 +25,7 @@ BUILD_DIST = REPO / "tools" / "build-dist"
 DIST = REPO / "dist"
 MARKER_PREFIX = "my-llm-brain generated: dist/"
 MANIFEST = ".my-llm-brain-manifest"
+SKIP_ON_WINDOWS_MODE = unittest.skipIf(os.name == "nt", "Windows reports 0o666 for regular files")
 
 
 def join(*parts):
@@ -78,7 +79,7 @@ class Fixture:
         return {str(p.relative_to(self.out)): (p.read_bytes(), p.stat().st_mtime_ns) for p in sorted(self.out.rglob("*")) if p.is_file()}
 
     def outputs(self):
-        return sorted(str(p.relative_to(self.out)) for p in self.out.rglob("*"))
+        return sorted(p.relative_to(self.out).as_posix() for p in self.out.rglob("*"))
 
 
 class FixtureCase(unittest.TestCase):
@@ -372,6 +373,7 @@ class SafetyTest(FixtureCase):
         self.assertEqual(foreign.read_text(), "foreign\n")
         self.assertIn("Does alpha.", self.fx.generated("alpha"))
 
+    @SKIP_ON_WINDOWS_MODE
     def test_generated_files_are_world_readable(self):
         self.fx.agent("alpha")
         self.fx.sync()
@@ -397,7 +399,16 @@ class SafetyTest(FixtureCase):
         self.assertEqual(self.fx.outputs(), ["agents", "skills"])
 
     def test_tampered_manifest_entries_are_refused_and_nothing_outside_is_touched(self):
-        for entry in ("../victim.txt", "/tmp/should-not-exist-victim", "sub/../../victim.txt"):
+        for entry in (
+            "../victim.txt",
+            "/tmp/should-not-exist-victim",
+            "sub/../../victim.txt",
+            "\\tmp\\x",
+            "C:\\x",
+            "C:x",
+            "..\\x",
+            "//server/share/x",
+        ):
             with self.subTest(entry):
                 victim = self.fx.out / "victim.txt"
                 victim.write_text("keep\n")

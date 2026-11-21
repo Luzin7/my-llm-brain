@@ -19,7 +19,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "bin" / "lib"))
@@ -273,6 +273,16 @@ def rules_file(config, side, source=None):
     return side / expand(rules["target"]), "\n\n".join(parts) + "\n"
 
 
+def escapes_directory(entry):
+    try:
+        return any(
+            flavor(entry).drive or flavor(entry).root or ".." in flavor(entry).parts
+            for flavor in (PurePosixPath, PureWindowsPath)
+        )
+    except (ValueError, OSError):
+        return True
+
+
 def owned_entries(directory):
     if (directory / LEGACY_MANIFEST).exists():
         raise ForeignManifestError(f"{directory} has a legacy {LEGACY_MANIFEST}")
@@ -284,7 +294,7 @@ def owned_entries(directory):
         raise ForeignManifestError(f"{path} does not belong to core {ROOT}")
     entries = {line for line in lines[1:] if line}
     for entry in sorted(entries):
-        if Path(entry).is_absolute() or ".." in Path(entry).parts:
+        if escapes_directory(entry):
             raise UnsafeManifestEntryError(f"{path}: entry {entry!r} escapes the directory")
     return entries, True
 
