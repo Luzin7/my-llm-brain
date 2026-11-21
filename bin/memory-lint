@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""memory-lint <memory_dir> [--max-index-bytes N]: exit 1 on any violation. Index cap defaults to 3500 bytes."""
+import os
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+
+import frontmatter  # noqa: E402
+
+PREFIXES = ("feedback_", "project_", "reference_", "user_")
+TYPES = {"feedback", "project", "reference", "user"}
+LINK = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]|\]\(([^)\s]+\.md)\)")
+DATE = re.compile(r"\b\d{1,2}/\d{1,2}\b|\b20\d\d-\d\d-\d\d\b")
+MAX_INDEX_LINE = 150
+DEFAULT_MAX_INDEX_BYTES = 3500
+
+
+def read(root, name):
+    with open(os.path.join(root, name), encoding="utf-8") as handle:
+        return handle.read()
+
+
+def metadata_type(header):
+    metadata = header.get("metadata")
+    return metadata.get("type") if isinstance(metadata, dict) else None
+
+
+def lint_index_lines(index, text, listed):
+    errors = []
+    for number, line in enumerate(text.splitlines(), 1):
+        if not line.startswith("- ["):
+            continue
+        if len(line) > MAX_INDEX_LINE:
+            errors.append(f"{index}:{number}: line over {MAX_INDEX_LINE} chars")
+        if DATE.search(line) or '"' in line:
+            errors.append(f"{index}:{number}: date or quote in index line")
+        for match in LINK.finditer(line):
+            target = os.path.basename(match.group(2) or match.group(1) + ".md")
+            listed.setdefault(target, []).append(index)
+    return errors
+
+
+def lint_note(root, note, listed):
+    errors = []
+    if not note.startswith(PREFIXES):
+        errors.append(f"{note}: name lacks feedback_/project_/reference_/user_ prefix")
+    try:
+        header, _ = frontmatter.parse(read(root, note))
+    except frontmatter.FrontmatterError as error:
+        return errors + [f"{note}: invalid frontmatter ({type(error).__name__}: {error})"]
+    if header.get("name") != note[:-3]:
+        errors.append(f"{note}: name '{header.get('name')}' != filename stem")
+    if not header.get("description"):
+        errors.append(f"{note}: empty description")
+    if metadata_type(header) not in TYPES:
+        errors.append(f"{note}: metadata.type missing or invalid")
+    count = len(listed.get(note, []))
+    if count != 1:
+        errors.append(f"{note}: listed in {count} index files (want exactly 1)")
+    return errors
+
+
+def lint_links(root, path):
+    errors = []
+    for match in LINK.finditer(read(root, path)):
+        raw = match.group(2) or match.group(1) + ".md"
+        if raw.startswith(("/", "~", "http")):
+            continue
+        if not os.path.exists(os.path.join(root, os.path.basename(raw))):
+            errors.append(f"{path}: dangling link {raw}")
+    return errors
+
+
+def lint(root, max_index_bytes):
+    errors = []
+    files = sorted(name for name in os.listdir(root) if name.endswith(".md"))
+    indexes = ["MEMORY.md"] + [name for name in files if name.startswith("index_")]
+    notes = [name for name in files if name not in indexes]
+    listed = {}
+    for index in indexes:
+        text = read(root, index)
+        size = len(text.encode())
+        if index == "MEMORY.md" and size > max_index_bytes:
+            errors.append(f"MEMORY.md: {size} bytes > {max_index_bytes}")
+        errors += lint_index_lines(index, text, listed)
+    for note in notes:
+        errors += lint_note(root, note, listed)
+    for path in files:
+        errors += lint_links(root, path)
+    return errors
+
+
+def max_index_bytes(argv):
+    if "--max-index-bytes" not in argv:
+        return DEFAULT_MAX_INDEX_BYTES
+    return int(argv[argv.index("--max-index-bytes") + 1])
+
+
+if __name__ == "__main__":
+    problems = lint(os.path.expanduser(sys.argv[1]), max_index_bytes(sys.argv))
+    print("\n".join(problems) or "OK")
+    sys.exit(1 if problems else 0)

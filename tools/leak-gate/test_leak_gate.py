@@ -97,9 +97,27 @@ class DenylistTest(GateCase):
         self.commit(env={"GIT_AUTHOR_EMAIL": f"{self.term}@users.noreply.github.com"})
         self.assertEqual(self.gate("--history").returncode, 1)
 
-    def test_term_inside_longer_word_is_not_a_match(self):
-        self.write("a.txt", f"x{self.term}y\n")
+    def shapes(self):
+        return [f"{self.term}_x", f"{self.term.title()}Corp", f"{self.term}2", f"x_{self.term}"]
+
+    def test_term_inside_identifier_in_tree_exits_1(self):
+        for shape in self.shapes():
+            with self.subTest(shape):
+                self.write("a.txt", f"{shape} = 1\n")
+                self.assertEqual(self.gate().returncode, 1)
+
+    def assert_shape_in_history_exits_1(self, index):
+        self.write("a.txt", f"{self.shapes()[index]} = 1\n")
+        self.commit()
+        (self.repo / "a.txt").unlink()
+        self.commit("remove")
         self.assertEqual(self.gate().returncode, 0)
+        self.assertEqual(self.gate("--history").returncode, 1)
+
+    def assert_shape_in_author_email_exits_1(self, index):
+        self.write("a.txt", "clean\n")
+        self.commit(env={"GIT_AUTHOR_EMAIL": f"{self.shapes()[index]}@users.noreply.github.com"})
+        self.assertEqual(self.gate("--history").returncode, 1)
 
     def test_output_never_shows_term(self):
         self.write(f"{self.term}.txt", f"{self.term}\n")
@@ -120,12 +138,95 @@ class DenylistTest(GateCase):
         self.assertEqual(self.gate().returncode, 2)
 
 
+for _index, _name in enumerate(("suffix_underscore", "prefix_camel", "suffix_digit", "prefix_underscore")):
+    setattr(DenylistTest, f"test_{_name}_in_history_exits_1", lambda self, i=_index: self.assert_shape_in_history_exits_1(i))
+    setattr(DenylistTest, f"test_{_name}_in_author_email_exits_1", lambda self, i=_index: self.assert_shape_in_author_email_exits_1(i))
+
+
+class PublicOnlyTest(GateCase):
+    def test_unset_denylist_exits_0(self):
+        self.write("a.txt", "nothing private here\n")
+        self.commit()
+        result = self.gate("--history", "--public-only", denylist="")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("denylist: skipped (public-only mode)", result.stdout)
+
+    def test_ignores_denylist_file(self):
+        self.write("a.txt", f"{self.term}\n")
+        self.commit()
+        self.assertEqual(self.gate("--public-only").returncode, 0)
+
+    def test_public_pattern_still_exits_1(self):
+        self.write("a.txt", random_word("p") + "@" + random_word("d") + ".com\n")
+        self.commit()
+        self.assertEqual(self.gate("--public-only", denylist="").returncode, 1)
+
+    def test_missing_gitleaks_still_exits_2(self):
+        bin_dir = self.workdir / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "git").symlink_to(shutil.which("git"))
+        self.assertEqual(self.gate("--public-only", denylist="", gitleaks="", path=str(bin_dir)).returncode, 2)
+
+
+class RefsTest(GateCase):
+    def seed(self):
+        self.write("a.txt", "clean\n")
+        self.commit()
+
+    def test_branch_name_with_term_exits_1(self):
+        self.seed()
+        self.git("branch", f"feature-{self.term}")
+        self.assertEqual(self.gate().returncode, 0)
+        result = self.gate("--history")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn(self.term, result.stdout + result.stderr)
+
+    def test_tag_name_with_term_exits_1(self):
+        self.seed()
+        self.git("tag", f"v_{self.term}")
+        self.assertEqual(self.gate("--history").returncode, 1)
+
+    def test_annotated_tag_message_with_term_exits_1(self):
+        self.seed()
+        self.git("tag", "-a", "v1", "-m", f"release {self.term}")
+        self.assertEqual(self.gate("--history").returncode, 1)
+
+    def test_annotated_tag_with_clean_message_exits_0(self):
+        self.seed()
+        self.git("tag", "-a", "v1", "-m", "release")
+        self.assertEqual(self.gate("--history").returncode, 0)
+
+    def test_note_with_term_exits_1(self):
+        self.seed()
+        self.git("notes", "add", "-m", f"note {self.term}")
+        result = self.gate("--history")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn(self.term, result.stdout + result.stderr)
+
+
 class GitleaksTest(GateCase):
     def test_no_gitleaks_and_no_container_exits_2(self):
         bin_dir = self.workdir / "bin"
         bin_dir.mkdir()
         (bin_dir / "git").symlink_to(shutil.which("git"))
         self.assertEqual(self.gate(gitleaks="", path=str(bin_dir)).returncode, 2)
+
+    def path_dir_with_gitleaks(self, version):
+        bin_dir = self.workdir / "pathbin"
+        bin_dir.mkdir()
+        (bin_dir / "git").symlink_to(shutil.which("git"))
+        stub = bin_dir / "gitleaks"
+        stub.write_text(f'#!/bin/sh\n[ "$1" = version ] && echo {version}\nexit 0\n')
+        stub.chmod(0o755)
+        return str(bin_dir)
+
+    def test_pinned_gitleaks_on_path_is_used_without_env(self):
+        path = self.path_dir_with_gitleaks(PINNED_VERSION)
+        self.assertEqual(self.gate(gitleaks="", path=path).returncode, 0)
+
+    def test_wrong_version_on_path_is_not_used(self):
+        path = self.path_dir_with_gitleaks("0.0.1")
+        self.assertEqual(self.gate(gitleaks="", path=path).returncode, 2)
 
     def test_wrong_version_exits_2(self):
         self.stub.write_text("#!/bin/sh\necho 0.0.1\n")

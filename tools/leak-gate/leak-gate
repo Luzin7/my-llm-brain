@@ -14,6 +14,7 @@ GITLEAKS_LEAK_EXIT = 3
 GITLEAKS_TIMEOUT_SECONDS = 300
 GIT_TIMEOUT_SECONDS = 120
 PATTERNS_FILE = Path(__file__).resolve().parent / "patterns.txt"
+REF_FORMAT = "@@REF %(refname)%0a%(contents)%0a%(taggername) %(taggeremail)"
 HISTORY_FORMAT = "@@COMMIT %H%n@@IDENT %an <%ae> %cn <%ce>%n%B"
 
 EXIT_CLEAN = 0
@@ -51,7 +52,7 @@ class Finding:
 class Denylist:
     def __init__(self, path, terms):
         self.path = path
-        self.patterns = [re.compile(r"(?<!\w)" + re.escape(term) + r"(?!\w)", re.I) for term in terms]
+        self.patterns = [re.compile(re.escape(term), re.I) for term in terms]
 
     @classmethod
     def load(cls, raw_path):
@@ -67,7 +68,13 @@ class Denylist:
             raise DenylistUnavailableError("file has no terms")
         return cls(path, terms)
 
+    @classmethod
+    def public_only(cls):
+        return cls(None, [])
+
     def describe(self):
+        if self.path is None:
+            return "denylist: skipped (public-only mode)"
         modified = datetime.datetime.fromtimestamp(self.path.stat().st_mtime, datetime.timezone.utc)
         return f"denylist: {len(self.patterns)} terms, modified {modified:%Y-%m-%dT%H:%M:%SZ}"
 
@@ -175,16 +182,38 @@ def scan_history(root, denylist, patterns):
     return findings
 
 
+def scan_refs(root, denylist, patterns):
+    findings = []
+    listing = run_git(root, "for-each-ref", f"--format={REF_FORMAT}")
+    ref = 0
+    for line in listing.splitlines():
+        if line.startswith("@@REF "):
+            ref += 1
+        scan_text(line, f"ref #{ref}", denylist, patterns, findings)
+    return findings
+
+
 def gitleaks_command(root):
     configured = os.environ.get("GITLEAKS_BIN")
     if configured:
         return [configured], root, []
+    on_path = shutil.which("gitleaks")
+    if on_path and is_pinned_gitleaks([on_path]):
+        return [on_path], root, []
     docker = shutil.which("docker")
     if not docker:
-        raise GitleaksUnavailableError("GITLEAKS_BIN is not set and docker is not on PATH")
+        raise GitleaksUnavailableError("GITLEAKS_BIN is not set, no pinned gitleaks is on PATH and docker is not on PATH")
     user = f"{os.getuid()}:{os.getgid()}"
     prefix = [docker, "run", "--rm", "--user", user, "-v", f"{root}:/repo:ro", PINNED_GITLEAKS_IMAGE]
     return prefix, Path("/repo"), ["--no-banner"]
+
+
+def is_pinned_gitleaks(command):
+    try:
+        result = subprocess.run([*command, "version"], capture_output=True, text=True, timeout=GITLEAKS_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and result.stdout.strip().lstrip("v") == PINNED_GITLEAKS_VERSION
 
 
 def check_gitleaks_version(command):
@@ -239,15 +268,17 @@ def report(findings, gitleaks_output, denylist):
 def main(argv):
     parser = argparse.ArgumentParser(description="Scan the tree (and with --history, all commits) for private or secret content.")
     parser.add_argument("--history", action="store_true", help="also scan every commit reachable from any ref, including identities")
+    parser.add_argument("--public-only", action="store_true", help="skip the private denylist; gitleaks and public patterns still run")
     arguments = parser.parse_args(argv)
     try:
-        denylist = Denylist.load(os.environ.get("LEAK_DENYLIST"))
+        denylist = Denylist.public_only() if arguments.public_only else Denylist.load(os.environ.get("LEAK_DENYLIST"))
         patterns = Patterns.load(PATTERNS_FILE)
         root = repository_root()
         print(denylist.describe())
         findings = scan_tree(root, denylist, patterns)
         if arguments.history:
             findings += scan_history(root, denylist, patterns)
+            findings += scan_refs(root, denylist, patterns)
         gitleaks_findings, gitleaks_output = run_gitleaks(root, arguments.history, denylist)
     except GateError as error:
         print(f"leak-gate: {error}", file=sys.stderr)
