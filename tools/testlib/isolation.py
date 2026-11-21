@@ -11,6 +11,8 @@ PROFILE_VARIABLES = (
     "XDG_STATE_HOME",
     "XDG_DATA_HOME",
     "XDG_CACHE_HOME",
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
 )
 
 WATCHED_FILES = (".claude/settings.json", ".claude/CLAUDE.md")

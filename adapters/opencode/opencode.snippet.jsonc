@@ -1,8 +1,0 @@
-{
-  "default_agent": "maestro",
-  "instructions": ["{{SIDE}}/memory/MEMORY.md"],
-  "plugin": [
-    "file://{{CONFIG_DIR}}/plugins/subagent-cap.js",
-    "file://{{CONFIG_DIR}}/plugins/context-guard.js"
-  ]
-}
