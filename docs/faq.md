@@ -38,7 +38,7 @@ Yes. Set it in `preferences.md`. Agent-facing files stay in English; replies and
 
 ## Does it work on Windows?
 
-Claude Code, Codex and AGENTS.md-only tools run natively with the PowerShell blocks of INSTALL.md. opencode runs through WSL with the POSIX blocks.
+Claude Code, Codex and AGENTS.md-only tools run natively with the PowerShell blocks of INSTALL.md. The Claude Code guards are UNVERIFIED on Windows until a real Claude Code run (python resolution via `${user_config.python}`); CI proves the scripts only. To fix it, set the `python` plugin option to an absolute `python.exe`. opencode runs through WSL with the POSIX blocks.
 
 ## Where do my notes go, and are they private?
 

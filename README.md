@@ -32,7 +32,7 @@ The text layer travels everywhere. Enforcement and independence depend on what t
 | Memory index always loaded | `autoMemoryDirectory` and `@` imports | read-at-start line | `instructions` | read-at-start line |
 | Task board, memory-lint, heavy-lock, secret-scan (scripts) | yes | if the tool runs shell | yes | if the tool runs shell |
 | Role prompts | subagents | custom agents (TOML) | subagents | sequential modes, one context |
-| Independent judge (fresh context) | yes | yes | yes | no: self-review, labelled weaker |
+| Independent judge (fresh context) | yes | yes, but fresh-vs-fork is UNVERIFIED | yes | no: self-review, labelled weaker |
 | Per-role model/effort tiers | yes | effort per agent | model only | no |
 | Main session orchestrates only | `maestro-guard` hook (L3) | no | `maestro` agent permission deny (L3) | no |
 | Fan-out cap | hook (L3) | no | plugin (L3) | n/a |
@@ -43,7 +43,7 @@ Results also vary with the model behind the harness. Small models follow long ru
 
 ## Install
 
-Requirements: git. Python 3.9+ is optional and only turns on the L3 guards. Linux, macOS and Windows (opencode on Windows runs in WSL).
+Requirements: git. Python 3.9+ is optional and only turns on the L3 guards. Linux, macOS and Windows (opencode on Windows runs in WSL). The Claude Code guards are UNVERIFIED on Windows until a real Claude Code run (python resolution via `${user_config.python}`); CI proves the scripts only. To fix it, set the `python` plugin option to an absolute `python.exe`.
 
 ```bash
 git clone https://github.com/Luzin7/my-llm-brain.git

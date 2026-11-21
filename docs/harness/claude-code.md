@@ -17,9 +17,11 @@ The main session is the maestro; its prompt is `core/maestro/maestro.md`, built 
 
 | Hook | Event | Effect |
 |---|---|---|
-| `maestro-guard` | PreToolUse, all tools | Main session may write only under the `.paths` directories (your side's memory, tasks, specs), Grep only under `.grep-paths`, no `mcp__*` tools, Bash limited to read-only git and a few read commands |
+| `maestro-guard` | PreToolUse, all tools | Main session may write only under `<side>/memory`, `<side>/tasks` and `<side>/specs` (`--side`), Grep also under any `--core <dir>`, no `mcp__*` tools, Bash limited to read-only git and a few read commands |
 | `subagent-cap` | PreToolUse, matcher `Agent\|Task` | Blocks dispatch number cap+1 per session (exit 2). Resuming an existing worker does not count |
 | `context-guard` | UserPromptSubmit | Adds a nudge to start a fresh session past a token threshold |
+
+The guards are UNVERIFIED on Windows until a real Claude Code run (python resolution via `${user_config.python}`); CI proves the scripts only. To fix it, set the `python` plugin option to an absolute `python.exe`.
 
 Facts worth knowing:
 

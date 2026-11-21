@@ -16,7 +16,7 @@ Update: `git pull`, then rerun the Codex install blocks and the verify blocks.
 
 ## What you get
 
-Text rules, 12 role agents with their own instructions (and reasoning effort), a fresh-context reviewer and the task-board skill. There is no orchestrate-only enforcement, no fan-out cap and no context nudge: those need hooks Codex does not offer here.
+Text rules, 12 role agents with their own instructions (and reasoning effort), a reviewer (whether it runs in a fresh context or a fork is UNVERIFIED on Codex) and the task-board skill. There is no orchestrate-only enforcement, no fan-out cap and no context nudge: those need hooks Codex does not offer here.
 
 ## Verify
 

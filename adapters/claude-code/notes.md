@@ -24,6 +24,7 @@ The main session is the maestro. Its body is `core/maestro/maestro.md`; it is no
 The hooks ship as the `brain-guards` plugin in `adapters/claude-code/guards/`: stdlib Python scripts in `hooks/`, wired by `hooks/hooks.json` in exec form (no shell), each entry with `timeout: 10` and `onFailure: "continue"`. The plugin options are `side` (default `~/my-brain`) and `python` (default `python3`). A session start line `brain-guards active (python X.Y)` shows the guards are alive.
 
 - `maestro-guard` receives `--side <dir>` from `hooks.json`. Writes are allowed under `<side>/memory`, `<side>/tasks` and `<side>/specs`; Grep also under any `--core <dir>`. Paths are normalized (backslashes, `~`, symlinks, case on Windows).
+- `try_lock` is duplicated in `guards/hooks/subagent_cap.py` and `bin/lib/portablelock.py` on purpose: a plugin cannot import from `bin/`.
 - Create `<config>/maestro-guard.off` to disable `maestro-guard`. The config directory is `CLAUDE_CONFIG_DIR`, default `~/.claude`.
 - In the main session every `mcp__*` tool is blocked. Bash is limited to read-only git (`status`, `diff`, `log`, `show`) and `ls`, `wc`, `head`, `cat`, `jq`, with no shell metacharacters.
 - Hooks also fire inside subagents. The input carries `agent_id` only there, so the guards allow any call that has it and the cap counts only calls without it.
