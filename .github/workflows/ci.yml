@@ -44,7 +44,7 @@ jobs:
       - name: hook tests
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s adapters/claude-code/hooks -p 'test_*.py'
+          python3 -m unittest discover -s adapters/claude-code/guards -p 'test_*.py'
       - name: build-dist
         run: |
           set -euo pipefail
@@ -79,22 +79,24 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
+      # leak-gate tests are not run on Windows: the gate is a POSIX-only maintainer tool and its CI job runs on ubuntu
       - name: bin tests
+        if: ${{ !cancelled() }}
         run: |
           python -m unittest discover -s bin -p 'test_*.py'
-          python -m unittest bin/test_brain_init.py
-      - name: leak-gate tests
-        run: python -m unittest tools/leak-gate/test_leak_gate.py
       - name: hook tests
-        run: python -m unittest discover -s adapters/claude-code/hooks -p 'test_*.py'
+        if: ${{ !cancelled() }}
+        run: python -m unittest discover -s adapters/claude-code/guards -p 'test_*.py'
       - name: build-dist
+        if: ${{ !cancelled() }}
         run: |
           python tools/build-dist --check
           python -m unittest tools/test_build_dist.py
       - name: plugin tests
+        if: ${{ !cancelled() }}
         run: |
           Set-Location adapters/opencode
-          node --test 'plugins/*.test.mjs'
+          node --test 'plugins/*.test.mjs' 'plugins/*/*.test.mjs'
 
   node:
     name: opencode plugins on ${{ matrix.os }}
@@ -115,7 +117,7 @@ jobs:
         run: |
           set -euo pipefail
           cd adapters/opencode
-          node --test 'plugins/*.test.mjs'
+          node --test 'plugins/*.test.mjs' 'plugins/*/*.test.mjs'
 
   leak-gate:
     runs-on: ubuntu-latest

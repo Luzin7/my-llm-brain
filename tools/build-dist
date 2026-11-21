@@ -170,6 +170,13 @@ def brain_file(target, config, substitution):
     return {path: encode(mark_markdown(text, path))}
 
 
+GUARDS_PLUGIN = {
+    "name": "brain-guards",
+    "source": "./adapters/claude-code/guards",
+    "description": "Optional L3 guard hooks of my-llm-brain.",
+}
+
+
 def plugin_manifests(config, claude_agents):
     plugin = config["plugin"]
     manifest = {
@@ -196,7 +203,10 @@ def plugin_manifests(config, claude_agents):
     marketplace = {
         "name": plugin["marketplace"],
         "owner": {"name": plugin["owner"]},
-        "plugins": [{"name": plugin["name"], "source": "./", "description": plugin["description"]}],
+        "plugins": [
+            {"name": plugin["name"], "source": "./", "description": plugin["description"]},
+            GUARDS_PLUGIN,
+        ],
     }
     return {
         ".claude-plugin/plugin.json": encode(json.dumps(manifest, indent=2) + "\n"),

@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test"
 import assert from "node:assert/strict"
-import plugin from "./subagent-cap.js"
+import plugin from "./index.js"
 
 const PARENT = "ses_parent"
 

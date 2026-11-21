@@ -6,8 +6,8 @@ Tested with opencode 2.3.2. This adapter installs two plugins and prints a confi
 
 | Gain | Level | How |
 |---|---|---|
-| Fan-out cap | L3 | `plugins/subagent-cap.js` throws `FanOutCapReachedError` before the cap-plus-one subagent dispatch |
-| Context-size nudge | L3 | `plugins/context-guard.js` adds a system notice when the context passes a token threshold |
+| Fan-out cap | L3 | `plugins/subagent-cap/index.js` throws `FanOutCapReachedError` before the cap-plus-one subagent dispatch |
+| Context-size nudge | L3 | `plugins/context-guard/index.js` adds a system notice when the context passes a token threshold |
 | Main session orchestrates only | L3 | `maestro` agent with `edit`/`bash` permission deny (from `examples/sides/opencode.json`), not a plugin |
 | Memory index always loaded | L1+ | `instructions` entry in the snippet |
 | Main agent is the orchestrator | L2+ | `default_agent` entry in the snippet |
@@ -53,7 +53,7 @@ The `@opencode-ai/plugin` npm package installed next to 1.x configs still types 
 ## Tests
 
 ```
-cd adapters/opencode && node --test 'plugins/*.test.mjs'
+cd adapters/opencode && node --test 'plugins/*.test.mjs' 'plugins/*/*.test.mjs'
 ```
 
 Quote the glob: on recent Node versions `node --test plugins/` treats the directory as a module path and fails.

@@ -5,22 +5,22 @@ import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from testlib.isolation import isolated_env, symlink_or_skip  # noqa: E402
 
-SCRIPT = Path(__file__).with_name("maestro-guard")
+SCRIPT = Path(__file__).resolve().parents[1] / "hooks" / "maestro_guard.py"
 
 
-def run(payload, config=None, raw=None):
+def run(payload, config=None, raw=None, args=()):
     stdin = raw if raw is not None else json.dumps(payload)
     with tempfile.TemporaryDirectory() as profile:
         env = isolated_env(profile)
         env.pop("CLAUDE_CONFIG_DIR", None)
         if config is not None:
             env.update(CLAUDE_CONFIG_DIR=str(config), HOME=str(config), USERPROFILE=str(config))
-        return subprocess.run([sys.executable, str(SCRIPT)], input=stdin, capture_output=True, text=True, env=env)
+        return subprocess.run([sys.executable, str(SCRIPT), *args], input=stdin, capture_output=True, text=True, env=env)
 
 
 def main_call(tool, **tool_input):
@@ -38,18 +38,19 @@ class MaestroGuardTest(unittest.TestCase):
         self.tmp = Path(self._tmp.name)
         self.config = self.tmp / "config"
         self.config.mkdir()
+        self.args = []
 
     def assertAllowed(self, payload):
-        result = run(payload, self.config)
+        result = run(payload, self.config, args=self.args)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def assertBlocked(self, payload):
-        result = run(payload, self.config)
+        result = run(payload, self.config, args=self.args)
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("Main session only orchestrates", result.stderr)
 
-    def with_paths(self, name, *entries):
-        (self.config / name).write_text("\n".join(str(e) for e in entries) + "\n")
+    def with_side(self, side, *extra):
+        self.args = ["--side", str(side), *extra]
 
     def test_subagent_edit_allowed(self):
         payload = main_call("Edit", file_path="/x/a.ts")
@@ -71,29 +72,29 @@ class MaestroGuardTest(unittest.TestCase):
     def test_main_write_memory_allowed(self):
         memory = self.tmp / "notes" / "memory"
         memory.mkdir(parents=True)
-        self.with_paths("maestro-guard.paths", memory)
+        self.with_side(self.tmp / "notes")
         self.assertAllowed(main_call("Write", file_path=str(memory / "x.md")))
 
     def test_main_write_memory_dotdot_blocked(self):
         memory = self.tmp / "notes" / "memory"
         memory.mkdir(parents=True)
-        self.with_paths("maestro-guard.paths", memory)
+        self.with_side(self.tmp / "notes")
         self.assertBlocked(main_call("Write", file_path=f"{memory}/../x.md"))
 
     def test_main_write_memory_symlink_escape_blocked(self):
         memory = self.tmp / "notes" / "memory"
         memory.mkdir(parents=True)
         symlink_or_skip(memory / "link", self.tmp)
-        self.with_paths("maestro-guard.paths", memory)
+        self.with_side(self.tmp / "notes")
         self.assertBlocked(main_call("Write", file_path=str(memory / "link" / "x.md")))
 
-    def test_main_write_without_paths_file_blocked(self):
+    def test_main_write_without_side_blocked(self):
         self.assertBlocked(main_call("Write", file_path=f"{self.tmp}/x.md"))
 
     def test_main_write_outside_paths_blocked(self):
         memory = self.tmp / "notes" / "memory"
         memory.mkdir(parents=True)
-        self.with_paths("maestro-guard.paths", memory)
+        self.with_side(self.tmp / "notes")
         for tool in ["Edit", "Write"]:
             with self.subTest(tool=tool):
                 self.assertBlocked(main_call(tool, file_path=f"{self.tmp}/other/x.md"))
@@ -171,8 +172,8 @@ class MaestroGuardTest(unittest.TestCase):
         vault = self.tmp / "vault"
         for name in ["memory", "tasks", "other"]:
             (vault / name).mkdir(parents=True)
-        self.with_paths("maestro-guard.grep-paths", vault / "memory", "~/vault/tasks")
         symlink_or_skip(self.config / "vault", vault)
+        self.with_side("~/vault")
         return vault
 
     def test_main_grep_allowed_roots(self):
@@ -195,7 +196,7 @@ class MaestroGuardTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertBlocked(main_call("Grep", pattern="a", path=str(path)))
 
-    def test_main_grep_without_grep_paths_file_blocked(self):
+    def test_main_grep_without_side_blocked(self):
         self.assertBlocked(main_call("Grep", pattern="a", path=str(self.tmp)))
 
     def test_main_grep_without_path_blocked(self):
@@ -204,6 +205,50 @@ class MaestroGuardTest(unittest.TestCase):
 
     def test_main_grep_non_string_path_blocked(self):
         self.assertBlocked(main_call("Grep", pattern="a", path=["x"]))
+
+    def test_main_write_memory_backslash_path_allowed(self):
+        memory = self.tmp / "notes" / "memory"
+        memory.mkdir(parents=True)
+        self.with_side(self.tmp / "notes")
+        self.assertAllowed(main_call("Write", file_path=f"{memory}\\x.md"))
+
+    def test_main_write_memory_backslash_dotdot_blocked(self):
+        memory = self.tmp / "notes" / "memory"
+        memory.mkdir(parents=True)
+        self.with_side(self.tmp / "notes")
+        self.assertBlocked(main_call("Write", file_path=f"{memory}\\..\\x.md"))
+
+    def test_main_write_outside_backslash_path_blocked(self):
+        self.with_side(self.tmp / "notes")
+        self.assertBlocked(main_call("Write", file_path=f"{self.tmp}\\other\\x.md"))
+
+    def test_main_grep_core_allowed_but_write_blocked(self):
+        core = self.tmp / "core"
+        core.mkdir()
+        self.with_side(self.tmp / "notes", "--core", str(core))
+        self.assertAllowed(main_call("Grep", pattern="a", path=str(core / "rules")))
+        self.assertBlocked(main_call("Write", file_path=str(core / "x.md")))
+
+    def test_unknown_argument_warns_and_keeps_guarding(self):
+        self.args = ["--bogus", "x"]
+        result = run(main_call("Edit", file_path="/x/a.ts"), self.config, args=self.args)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("step=parse-args", result.stderr)
+
+    def test_internal_error_fails_open_naming_step_and_input(self):
+        result = run(main_call("Write", file_path="a\0b"), self.config, args=self.args)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("step=decide", result.stderr)
+        self.assertIn("input=tool Write", result.stderr)
+
+    def test_non_ascii_path_outside_side_blocked_on_utf8_stdin(self):
+        self.with_side(self.tmp / "notes")
+        env = isolated_env(self.tmp / "profile", CLAUDE_CONFIG_DIR=str(self.config))
+        stdin = json.dumps(main_call("Write", file_path=str(self.tmp / "ação" / "x.md")), ensure_ascii=False)
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), *self.args], input=stdin.encode("utf-8"), capture_output=True, env=env
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
 
     def test_off_switch(self):
         (self.config / "maestro-guard.off").touch()

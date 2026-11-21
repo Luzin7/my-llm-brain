@@ -15,9 +15,9 @@ Run everything before you push. Never point tests at your real home: the init te
 
 ```bash
 TZ=UTC python3 -m unittest discover -s bin -p 'test_*.py' -v
-TZ=UTC python3 -m unittest discover -s adapters/claude-code/hooks -p 'test_*.py' -v
+TZ=UTC python3 -m unittest discover -s adapters/claude-code/guards -p 'test_*.py' -v
 python3 -m unittest tools/leak-gate/test_leak_gate.py -v
-(cd adapters/opencode && node --test 'plugins/*.test.mjs')
+(cd adapters/opencode && node --test 'plugins/*.test.mjs' 'plugins/*/*.test.mjs')
 tools/docs/check-links
 tools/docs/run-quickstart
 ```

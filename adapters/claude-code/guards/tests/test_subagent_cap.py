@@ -7,12 +7,12 @@ import time
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from testlib.isolation import isolated_env, symlink_or_skip  # noqa: E402
 
-SCRIPT = Path(__file__).with_name("subagent-cap")
+SCRIPT = Path(__file__).resolve().parents[1] / "hooks" / "subagent_cap.py"
 
 
 def payload(session="s1", agent_id=None, tool="Agent"):
@@ -28,9 +28,12 @@ class SubagentCapTest(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.config = Path(self._tmp.name) / "config"
 
-    def env(self, cap=None, config=None):
+    def env(self, cap=None, config=None, extra_env=()):
+        extra_env = dict(extra_env)
         env = isolated_env(Path(self._tmp.name) / "profile", CLAUDE_CONFIG_DIR=str(config or self.config))
         env.pop("SUBAGENT_CAP", None)
+        env.pop("CLAUDE_PLUGIN_DATA", None)
+        env.update(extra_env)
         if cap is not None:
             env["SUBAGENT_CAP"] = str(cap)
         return env
@@ -103,6 +106,52 @@ class SubagentCapTest(unittest.TestCase):
             proc.stdout.close()
             proc.stderr.close()
         self.assertEqual(codes, [0, 2])
+
+    def concurrent_codes(self, count, session, cap):
+        procs = [
+            subprocess.Popen(
+                [sys.executable, str(SCRIPT)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, env=self.env(cap=cap),
+            )
+            for _ in range(count)
+        ]
+        for proc in procs:
+            proc.stdin.write(payload(session))
+            proc.stdin.close()
+        codes = sorted(proc.wait() for proc in procs)
+        for proc in procs:
+            proc.stdout.close()
+            proc.stderr.close()
+        return codes
+
+    def test_concurrent_calls_count_is_exact_on_repeated_rounds(self):
+        for session in ("round-1", "round-2"):
+            with self.subTest(session=session):
+                self.assertEqual(self.concurrent_codes(8, session, 5), [0] * 5 + [2] * 3)
+
+    def test_state_lives_under_plugin_data_when_set(self):
+        data = Path(self._tmp.name) / "plugin-data"
+        result = self.run_hook(payload(), extra_env={"CLAUDE_PLUGIN_DATA": str(data)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((data / "subagent-cap").is_dir())
+        self.assertFalse((self.config / "state").exists())
+
+    def state_file(self):
+        return next(path for path in (self.config / "state" / "subagent-cap").iterdir() if path.name != ".lock")
+
+    def test_corrupt_state_fails_open_naming_step_and_input(self):
+        self.call(1, cap=1)
+        self.state_file().write_text("not a number", encoding="utf-8")
+        result = self.run_hook(payload(), cap=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("step=read-state", result.stderr)
+        self.assertIn("input=counter file", result.stderr)
+
+    def test_corrupt_state_is_repaired_so_the_cap_still_applies(self):
+        self.call(1, cap=1)
+        self.state_file().write_bytes(b"\xff\xfe\x00")
+        self.assertEqual(self.run_hook(payload(), cap=1).returncode, 0)
+        self.assertEqual(self.run_hook(payload(), cap=1).returncode, 2)
 
     def test_unwritable_state_allows_with_warning(self):
         blocker = Path(self._tmp.name) / "file"

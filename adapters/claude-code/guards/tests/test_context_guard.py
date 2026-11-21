@@ -5,12 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from testlib.isolation import isolated_env, symlink_or_skip  # noqa: E402
 
-SCRIPT = Path(__file__).with_name("context-guard")
+SCRIPT = Path(__file__).resolve().parents[1] / "hooks" / "context_guard.py"
 
 
 def run(stdin, env_extra=None):
@@ -112,6 +112,22 @@ class ContextGuardTest(unittest.TestCase):
 
     def test_missing_transcript_fails_open(self):
         self.assertSilent(self.hook(self.tmp / "nope.jsonl"))
+
+    def test_missing_transcript_names_step_and_input_on_stderr(self):
+        result = self.hook(self.tmp / "nope.jsonl")
+        self.assertIn("step=read-transcript", result.stderr)
+        self.assertIn("input=transcript file", result.stderr)
+
+    def test_non_ascii_transcript_path_on_utf8_stdin(self):
+        folder = self.tmp / "ação"
+        folder.mkdir()
+        path = folder / "t.jsonl"
+        path.write_text(json.dumps(assistant(150000)) + "\n", encoding="utf-8")
+        env = isolated_env(self.tmp / "profile")
+        stdin = json.dumps({"transcript_path": str(path)}, ensure_ascii=False).encode("utf-8")
+        result = subprocess.run([sys.executable, str(SCRIPT)], input=stdin, capture_output=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b"150K", result.stdout)
 
     def test_garbled_lines_skipped(self):
         path = self.transcript(["{not json", assistant(150000), "also garbage"])

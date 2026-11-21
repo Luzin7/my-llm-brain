@@ -21,17 +21,17 @@ The main session is the maestro. Its body is `core/maestro/maestro.md`; it is no
 
 ## Hooks (level 3)
 
-Hook scripts are stdlib Python in `adapters/claude-code/hooks/`; `settings.hooks.json` wires them, each entry with `timeout: 10`.
+The hooks ship as the `brain-guards` plugin in `adapters/claude-code/guards/`: stdlib Python scripts in `hooks/`, wired by `hooks/hooks.json` in exec form (no shell), each entry with `timeout: 10` and `onFailure: "continue"`. The plugin options are `side` (default `~/my-brain`) and `python` (default `python3`). A session start line `brain-guards active (python X.Y)` shows the guards are alive.
 
-- `brain-init` renders `{{CORE}}` in the commands, merges an entry only if absent (backup, atomic write), and writes `<config>/maestro-guard.paths` and `<config>/maestro-guard.grep-paths` (one directory per line; `~` allowed). The config directory is `CLAUDE_CONFIG_DIR`, default `~/.claude`.
-- `maestro-guard`: main-session writes are allowed only under the `.paths` directories, Grep only under the `.grep-paths` directories (missing file means blocked). Create `<config>/maestro-guard.off` to disable it.
+- `maestro-guard` receives `--side <dir>` from `hooks.json`. Writes are allowed under `<side>/memory`, `<side>/tasks` and `<side>/specs`; Grep also under any `--core <dir>`. Paths are normalized (backslashes, `~`, symlinks, case on Windows).
+- Create `<config>/maestro-guard.off` to disable `maestro-guard`. The config directory is `CLAUDE_CONFIG_DIR`, default `~/.claude`.
 - In the main session every `mcp__*` tool is blocked. Bash is limited to read-only git (`status`, `diff`, `log`, `show`) and `ls`, `wc`, `head`, `cat`, `jq`, with no shell metacharacters.
 - Hooks also fire inside subagents. The input carries `agent_id` only there, so the guards allow any call that has it and the cap counts only calls without it.
-- `subagent-cap`: `SUBAGENT_CAP` (default 25; invalid or negative falls back to it); call cap+1 exits 2. One flock-guarded counter file per session in `<config>/state/subagent-cap/`, files older than 7 days pruned. Blocked calls are not counted.
+- `subagent-cap`: `SUBAGENT_CAP` (default 25; invalid or negative falls back to it); call cap+1 exits 2. One counter file per session under `${CLAUDE_PLUGIN_DATA}/subagent-cap/` (fallback `<config>/state/subagent-cap/`), guarded by a cross-platform file lock; files older than 7 days are pruned. A corrupt counter is reset and the call allowed. Blocked calls are not counted.
 - `context-guard`: `CONTEXT_GUARD_TOKENS` (default 100000; invalid falls back to it).
-- Fail open: bad input, a missing `session_id` or `transcript_path`, or an unwritable state directory allows the call (warning on stderr where the hook warns). Only a clean exit 2 blocks.
+- Fail open: any internal error exits 0 with a stderr line naming step, error and input class. Only a clean exit 2 blocks.
 - The cap matches the dispatch tool as `Agent|Task` (matcher and script), since the name has varied; re-check it when upgrading Claude Code.
-- Each command is `test ! -f <script> || python3 <script>`, so a moved core skips the hook instead of blocking every call.
+- Each hook runs as `${user_config.python} -I <script>` with no shell, so PowerShell and POSIX behave the same.
 
 ## UNVERIFIED frontmatter keys
 

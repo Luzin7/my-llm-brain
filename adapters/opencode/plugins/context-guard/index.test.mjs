@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import plugin from "./context-guard.js"
+import plugin from "./index.js"
 
 const assistant = (input) => ({ type: "assistant", tokens: { input, cache: { read: 0, write: 0 } } })
 

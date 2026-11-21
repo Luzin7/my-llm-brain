@@ -7,6 +7,8 @@ import json
 import os
 import sys
 
+sys.stderr.reconfigure(errors="backslashreplace")
+
 DEFAULT_THRESHOLD = 100_000
 CHUNK_BYTES = 256 * 1024
 USAGE_FIELDS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
@@ -57,9 +59,31 @@ def last_context_tokens(path):
     return None
 
 
+def warn(step, error, input_class):
+    print(
+        f"context-guard warning: step={step} error={type(error).__name__}: {error} "
+        f"input={input_class}, allowing",
+        file=sys.stderr,
+    )
+
+
+def read_transcript_path():
+    try:
+        return json.loads(sys.stdin.buffer.read().decode("utf-8"))["transcript_path"]
+    except (ValueError, KeyError, TypeError) as error:
+        warn("read-input", error, "stdin payload")
+        return None
+
+
 def main():
-    path = json.load(sys.stdin)["transcript_path"]
-    tokens = last_context_tokens(path)
+    path = read_transcript_path()
+    if path is None:
+        return
+    try:
+        tokens = last_context_tokens(path)
+    except OSError as error:
+        warn("read-transcript", error, "transcript file")
+        return
     if tokens is None or tokens < threshold():
         return
     output = {
@@ -73,5 +97,5 @@ def main():
 
 try:
     main()
-except Exception:
-    sys.exit(0)
+except Exception as error:
+    warn("unexpected", error, "hook run")
