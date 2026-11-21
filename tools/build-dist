@@ -9,7 +9,7 @@ Without flags, writes dist/ and .claude-plugin/ (stale dist files are removed).
 import json
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "bin" / "lib"))
@@ -99,7 +99,7 @@ def agent_files(target, config, substitution):
 def skill_files(target, substitution):
     files = {}
     for name, data in rendercore.skill_files().items():
-        path = f"{target}/skills/{name}"
+        path = f"{target}/skills/{PureWindowsPath(name).as_posix()}"
         text = substitution.text(data.decode("utf-8"), f"skill {name}")
         files[path] = encode(mark_frontmatter(text, path))
     return files

@@ -33,27 +33,33 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: bin tests
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 -m unittest discover -s bin -p 'test_*.py'
       - name: leak-gate tests
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 -m unittest tools/leak-gate/test_leak_gate.py
       - name: hook tests
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 -m unittest discover -s adapters/claude-code/guards -p 'test_*.py'
       - name: build-dist
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python tools/build-dist --check
           python -m unittest tools/test_build_dist.py
       - name: docs
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           tools/docs/check-links
       - name: install doc
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 tools/test_install_doc.py

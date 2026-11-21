@@ -84,7 +84,8 @@ class InstallScenarios:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
-        self.env = isolated_env(self.root)
+        self.env = isolated_env(self.root, POWERSHELL_TELEMETRY_OPTOUT="1")
+        self.env["USERPROFILE"] = self.env["HOME"]
         self.home = Path(self.env["HOME"])
         self.side = self.home / "my-brain"
         self.claude = Path(self.env["CLAUDE_CONFIG_DIR"])
@@ -94,6 +95,9 @@ class InstallScenarios:
         self.agents_target = self.root / "project/AGENTS.md"
         self.before = real_profile_snapshot()
         self.addCleanup(self.assert_real_profile_untouched)
+
+    def managed_snapshot(self):
+        return {str(root): snapshot(root) for root in (self.side, self.claude, self.codex, self.opencode)}
 
     def assert_real_profile_untouched(self):
         self.assertEqual(self.before, real_profile_snapshot())
@@ -108,7 +112,7 @@ class InstallScenarios:
     def run_steps(self, steps):
         suffix = ".sh" if self.flavor == "sh" else ".ps1"
         path = self.root / f"run{suffix}"
-        path.write_text(self.script(steps), encoding="utf-8", newline="\n")
+        path.write_bytes(self.script(steps).encode("utf-8"))
         command = ["sh", "-eu", str(path)] if self.flavor == "sh" else [PWSH or "pwsh", "-NoProfile", "-File", str(path)]
         return subprocess.run(command, cwd=ROOT, env=self.env, capture_output=True, text=True, timeout=120)
 
@@ -129,9 +133,9 @@ class InstallScenarios:
     def test_side_created_once_and_second_run_is_byte_identical(self):
         self.install("claude")
         self.assertTrue((self.side / "rules/side.md").is_file())
-        first = snapshot(self.root)
+        first = self.managed_snapshot()
         self.install("claude")
-        self.assertEqual(first, snapshot(self.root))
+        self.assertEqual(first, self.managed_snapshot())
 
     def test_existing_side_is_left_untouched(self):
         (self.side / "rules").mkdir(parents=True)

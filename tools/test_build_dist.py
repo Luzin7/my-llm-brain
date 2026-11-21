@@ -1,3 +1,5 @@
+import importlib.machinery
+import importlib.util
 import json
 import os
 import shutil
@@ -5,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 try:
@@ -541,6 +544,23 @@ class DistTest(unittest.TestCase):
         actual = sorted(f"./dist/claude-code/agents/{path.name}" for path in (DIST / "claude-code" / "agents").glob("*.md"))
         self.assertEqual(listed, actual)
         self.assertEqual(len(listed), 12)
+
+
+class OutputNamesTest(unittest.TestCase):
+    def test_skill_output_names_have_no_backslash(self):
+        loader = importlib.machinery.SourceFileLoader("build_dist_under_test", str(BUILD_DIST))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+
+        class Plain:
+            def text(self, text, label):
+                return text
+
+        windows_keys = {"task-board\\SKILL.md": b"---\nname: x\n---\nbody\n"}
+        with mock.patch.object(module.rendercore, "skill_files", return_value=windows_keys):
+            names = module.skill_files("claude-code", Plain())
+        self.assertEqual(["claude-code/skills/task-board/SKILL.md"], list(names))
 
 
 class BuildDistCheckTest(unittest.TestCase):

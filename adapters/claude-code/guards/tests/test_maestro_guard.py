@@ -13,13 +13,14 @@ from testlib.isolation import isolated_env, symlink_or_skip  # noqa: E402
 SCRIPT = Path(__file__).resolve().parents[1] / "hooks" / "maestro_guard.py"
 
 
-def run(payload, config=None, raw=None, args=()):
+def run(payload, config=None, raw=None, args=(), extra_env=None):
     stdin = raw if raw is not None else json.dumps(payload)
     with tempfile.TemporaryDirectory() as profile:
         env = isolated_env(profile)
         env.pop("CLAUDE_CONFIG_DIR", None)
         if config is not None:
             env.update(CLAUDE_CONFIG_DIR=str(config), HOME=str(config), USERPROFILE=str(config))
+        env.update(extra_env or {})
         return subprocess.run([sys.executable, str(SCRIPT), *args], input=stdin, capture_output=True, text=True, env=env)
 
 
@@ -236,7 +237,15 @@ class MaestroGuardTest(unittest.TestCase):
         self.assertIn("step=parse-args", result.stderr)
 
     def test_internal_error_fails_open_naming_step_and_input(self):
-        result = run(main_call("Write", file_path="a\0b"), self.config, args=self.args)
+        failing = self.tmp / "failing"
+        failing.mkdir()
+        (failing / "sitecustomize.py").write_text(
+            "import os.path\n\n\ndef broken(path):\n    raise OSError('forced')\n\n\nos.path.realpath = broken\n",
+            encoding="utf-8",
+        )
+        result = run(
+            main_call("Write", file_path="/x/a.md"), self.config, args=self.args, extra_env={"PYTHONPATH": str(failing)}
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("step=decide", result.stderr)
         self.assertIn("input=tool Write", result.stderr)
