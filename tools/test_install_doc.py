@@ -154,6 +154,33 @@ class InstallScenarios:
         self.assertFalse((self.claude / "settings.json").exists())
         self.assertTrue(self.side.is_dir())
 
+    def test_marker_text_inside_prose_is_left_untouched(self):
+        original = f"I write {START} and {END} inside a sentence.\nkeep me\n"
+        (self.claude / "CLAUDE.md").write_text(original, encoding="utf-8")
+        self.install("claude")
+        text = (self.claude / "CLAUDE.md").read_text(encoding="utf-8")
+        self.assertTrue(text.startswith(original))
+        self.assertEqual(1, text.splitlines().count(START))
+        self.uninstall("claude")
+        self.assertEqual(original, (self.claude / "CLAUDE.md").read_text(encoding="utf-8"))
+
+    def test_marker_text_inside_prose_survives_uninstall_without_block(self):
+        original = f"see {START} in the docs\n"
+        (self.claude / "CLAUDE.md").write_text(original, encoding="utf-8")
+        self.uninstall("claude")
+        self.assertEqual(original, (self.claude / "CLAUDE.md").read_text(encoding="utf-8"))
+
+    def test_end_before_start_is_refused_and_file_untouched(self):
+        original = f"{END}\nmine\n{START}\n"
+        (self.claude / "CLAUDE.md").write_text(original, encoding="utf-8")
+        result = self.run_steps([*BASE, "claude-install"])
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("STOP", result.stdout + result.stderr)
+        self.assertEqual(original, (self.claude / "CLAUDE.md").read_text(encoding="utf-8"))
+        result = self.run_steps(["vars", "helpers", "claude-uninstall"])
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(original, (self.claude / "CLAUDE.md").read_text(encoding="utf-8"))
+
     def test_codex_copies_equal_dist_and_roundtrip_restores_agents_md(self):
         original = "# codex notes\nkeep me\n"
         (self.codex / "AGENTS.md").write_text(original, encoding="utf-8")

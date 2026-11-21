@@ -90,8 +90,13 @@ esc() { printf '%s' "$1" | sed 's/ /\\ /g'; }
 markers_ok() {
   s="$(grep -cxF -- "$START" "$1" || true)"
   e="$(grep -cxF -- "$END" "$1" || true)"
-  [ "$s" = "$e" ] && [ "$s" -le 1 ] && return 0
-  echo "STOP: unbalanced or repeated my-llm-brain markers in $1"
+  if [ "$s" = "$e" ] && [ "$s" -le 1 ]; then
+    if [ "$s" = 0 ]; then return 0; fi
+    sl="$(grep -nxF -- "$START" "$1" | cut -d: -f1)"
+    el="$(grep -nxF -- "$END" "$1" | cut -d: -f1)"
+    if [ "$sl" -lt "$el" ]; then return 0; fi
+  fi
+  echo "STOP: unbalanced, repeated or misordered my-llm-brain markers in $1"
   return 1
 }
 put_block() {
@@ -234,20 +239,27 @@ function Get-Ref($Path) {
   return $full
 }
 function Get-Escaped($Text) { $Text.Replace(' ', '\ ') }
-function Test-Markers($Text) {
-  $s = [regex]::Matches($Text, [regex]::Escape($Start)).Count
-  $e = [regex]::Matches($Text, [regex]::Escape($End)).Count
-  if ($s -ne $e -or $s -gt 1) { throw 'STOP: unbalanced or repeated my-llm-brain markers' }
-  return $s
+function Get-Markers($Text) {
+  $starts = @()
+  $ends = @()
+  $offset = 0
+  foreach ($segment in [regex]::Split($Text, '(?<=\n)')) {
+    $line = $segment.TrimEnd("`r", "`n")
+    if ($line -ceq $Start) { $starts += $offset }
+    if ($line -ceq $End) { $ends += ($offset + $line.Length) }
+    $offset += $segment.Length
+  }
+  if ($starts.Count -ne $ends.Count -or $starts.Count -gt 1) { throw 'STOP: unbalanced, repeated or misordered my-llm-brain markers' }
+  if ($starts.Count -eq 1 -and $starts[0] -ge $ends[0]) { throw 'STOP: unbalanced, repeated or misordered my-llm-brain markers' }
+  return @{ Count = $starts.Count; Start = if ($starts.Count -eq 1) { $starts[0] } else { -1 }; End = if ($ends.Count -eq 1) { $ends[0] } else { -1 } }
 }
 function Set-Block($Target, $Block) {
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Target) | Out-Null
   $exists = Test-Path -LiteralPath $Target -PathType Leaf
   $old = if ($exists) { Read-Text $Target } else { '' }
-  if ((Test-Markers $old) -eq 1) {
-    $i = $old.IndexOf($Start)
-    $j = $old.IndexOf($End) + $End.Length
-    $new = $old.Substring(0, $i) + $Block + $old.Substring($j)
+  $m = Get-Markers $old
+  if ($m.Count -eq 1) {
+    $new = $old.Substring(0, $m.Start) + $Block + $old.Substring($m.End)
   } else {
     $gap = if ($old.Length -gt 0 -and -not $old.EndsWith("`n")) { "`n" } else { '' }
     $new = $old + $gap + $Block + "`n"
@@ -259,9 +271,10 @@ function Set-Block($Target, $Block) {
 function Remove-Block($Target) {
   if (-not (Test-Path -LiteralPath $Target -PathType Leaf)) { return }
   $old = Read-Text $Target
-  if ((Test-Markers $old) -eq 0) { return }
-  $i = $old.IndexOf($Start)
-  $j = $old.IndexOf($End) + $End.Length
+  $m = Get-Markers $old
+  if ($m.Count -eq 0) { return }
+  $i = $m.Start
+  $j = $m.End
   if ($old.Substring($j).StartsWith("`r`n")) { $j += 2 } elseif ($old.Substring($j).StartsWith("`n")) { $j += 1 }
   $new = $old.Substring(0, $i) + $old.Substring($j)
   Backup-File $Target
@@ -332,7 +345,7 @@ function Test-Rev($File) {
 }
 function Test-Block($File) {
   $n = 0
-  if (Test-Path -LiteralPath $File -PathType Leaf) { $n = @(Get-Content -LiteralPath $File -Encoding UTF8 | Where-Object { $_ -eq $Start }).Count }
+  if (Test-Path -LiteralPath $File -PathType Leaf) { $n = @(Get-Content -LiteralPath $File -Encoding UTF8 | Where-Object { $_ -ceq $Start }).Count }
   if ($n -ne 1) { Add-Fail "marked block in $File is not present exactly once" }
 }
 ```
