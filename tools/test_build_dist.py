@@ -2,12 +2,25 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-BIN = Path(__file__).resolve().parent
-EXAMPLES = BIN.parent / "examples" / "sides"
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tools"))
+
+from testlib.isolation import isolated_env  # noqa: E402
+
+BIN = REPO / "bin"
+BUILD_DIST = REPO / "tools" / "build-dist"
+DIST = REPO / "dist"
+MARKER_PREFIX = "my-llm-brain generated: dist/"
 MANIFEST = ".my-llm-brain-manifest"
 
 
@@ -20,8 +33,7 @@ class Fixture:
         self.home = Path(os.path.realpath(tmp))
         self.root = self.home / "core-root"
         (self.root / "bin" / "lib").mkdir(parents=True)
-        for name in ("brain-sync", "secret-scan"):
-            shutil.copy(BIN / name, self.root / "bin" / name)
+        shutil.copy(BIN / "secret-scan", self.root / "bin" / "secret-scan")
         shutil.copytree(BIN / "lib", self.root / "bin" / "lib", dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__"))
         self.core = self.root / "core"
         for name in ("agents", "skills", "rules"):
@@ -53,8 +65,8 @@ class Fixture:
 
     def sync(self, *flags, **config):
         path = self.write_config(**config)
-        env = dict(os.environ, HOME=str(self.home))
-        return subprocess.run([str(self.root / "bin" / "brain-sync"), str(path), *flags], capture_output=True, text=True, env=env)
+        env = isolated_env(self.home / "profile")
+        return subprocess.run([sys.executable, str(self.root / "bin" / "lib" / "rendercore.py"), str(path), *flags], capture_output=True, text=True, env=env)
 
     def generated(self, name):
         return (self.out / "agents" / f"{name}.md").read_text()
@@ -448,78 +460,7 @@ class LeakCheckTest(FixtureCase):
         self.assertEqual(self.fx.outputs(), ["agents", "skills"])
 
 
-class RealCoreExampleSidesTest(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.home = Path(self._tmp.name)
-        self.side = self.home / "side"
-        (self.side / "rules").mkdir(parents=True)
-        for name in ("side", "preferences"):
-            (self.side / "rules" / f"{name}.md").write_text(f"LOCAL-{name}\n")
-
-    def sync_real(self, config_text):
-        config = self.side / "brain-sync.json"
-        config.write_text(config_text)
-        env = dict(os.environ, HOME=str(self.home))
-        return subprocess.run(
-            [str(BIN / "brain-sync"), str(config), "--config-dir", str(self.home / "cfg")], capture_output=True, text=True, env=env
-        )
-
-    def test_every_example_side_syncs_against_the_real_core(self):
-        examples = sorted(EXAMPLES.glob("*.json"))
-        self.assertTrue(examples)
-        for example in examples:
-            with self.subTest(example.name):
-                result = self.sync_real(example.read_text())
-                self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_opencode_side_renders_maestro_from_the_real_core(self):
-        result = self.sync_real((EXAMPLES / "opencode.json").read_text())
-        self.assertEqual(result.returncode, 0, result.stderr)
-        rendered = self.home / ".config" / "opencode" / "agent" / "maestro.md"
-        self.assertTrue(rendered.is_file())
-        self.assertNotIn("{{", rendered.read_text())
-
-    def test_missing_body_from_in_a_config_copy_fails(self):
-        text = (EXAMPLES / "opencode.json").read_text().replace("maestro/maestro.md", "maestro/absent.md")
-        result = self.sync_real(text)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("MissingSourceError", result.stderr)
-
-
-class ExampleSidesTest(FixtureCase):
-    def seed_core(self):
-        for name in ("posture", "orchestration"):
-            self.fx.rule(f"{name}.md", f"RULE-{name}")
-        for name in ("architect", "scout"):
-            self.fx.agent(name, "tier: judge\n")
-        (self.fx.side / "rules").mkdir()
-        for name in ("side", "preferences"):
-            (self.fx.side / "rules" / f"{name}.md").write_text(f"LOCAL-{name}\n")
-
-    def test_every_example_side_config_syncs(self):
-        examples = sorted(EXAMPLES.glob("*.json"))
-        self.assertTrue(examples)
-        for example in examples:
-            with self.subTest(example.name):
-                self.tearDown_fixture()
-                self.seed_core()
-                for extra in json.loads(example.read_text()).get("extra_agents", {}).values():
-                    body = self.fx.core / extra["body_from"]
-                    body.parent.mkdir(parents=True, exist_ok=True)
-                    body.write_text("Maestro body.\n")
-                (self.fx.side / "brain-sync.json").write_text(example.read_text())
-                env = dict(os.environ, HOME=str(self.fx.home))
-                result = subprocess.run([str(self.fx.root / "bin" / "brain-sync"), str(self.fx.side / "brain-sync.json")], capture_output=True, text=True, env=env)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                again = subprocess.run([str(self.fx.root / "bin" / "brain-sync"), str(self.fx.side / "brain-sync.json")], capture_output=True, text=True, env=env)
-                self.assertEqual((again.returncode, again.stdout), (0, ""))
-
-    def tearDown_fixture(self):
-        shutil.rmtree(self.fx.home, ignore_errors=True)
-        self.fx = Fixture(self.fx.home)
-
+class SideConfigTest(FixtureCase):
     def test_comment_keys_are_ignored_at_any_level(self):
         self.fx.agent("alpha")
         result = self.fx.sync(_comment="top", agents={"_comment": "x", "alpha": {"_comment": "y", "model": "model-a"}}, defaults={"_comment": "z"})
@@ -533,6 +474,112 @@ class ExampleSidesTest(FixtureCase):
         result = self.fx.sync(agents_dir=None, skills_dir=None, rules_file={"shared": ["rules/a.md"], "target": str(target)})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.fx.outputs(), [MANIFEST, "AGENTS.md", "agents", "skills"])
+
+
+class DistTest(unittest.TestCase):
+    def dist_files(self):
+        return sorted(path for path in DIST.rglob("*") if path.is_file())
+
+    def relative(self, path):
+        return path.relative_to(DIST).as_posix()
+
+    def test_every_dist_file_carries_its_marker_first(self):
+        files = self.dist_files()
+        self.assertTrue(files)
+        for path in files:
+            with self.subTest(self.relative(path)):
+                lines = path.read_text(encoding="utf-8").splitlines()
+                expected = MARKER_PREFIX + self.relative(path)
+                head = lines[1] if lines[0] == "---" else lines[0]
+                self.assertIn(expected, head)
+                self.assertTrue(head.startswith(("# ", "<!-- ")))
+
+    def test_no_token_survives_in_claude_code_plugin_files(self):
+        files = [path for path in (DIST / "claude-code").rglob("*.md") if path.name != "BRAIN.md"]
+        self.assertEqual(len(files), 13)
+        for path in files:
+            with self.subTest(self.relative(path)):
+                self.assertNotIn("{{", path.read_text(encoding="utf-8"))
+
+    def test_claude_code_plugin_files_use_plugin_variables(self):
+        text = (DIST / "claude-code" / "skills" / "task-board" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn('${user_config.python} "${CLAUDE_PLUGIN_ROOT}/bin/tasks" "${user_config.side}/tasks"', text)
+
+    @unittest.skipUnless(tomllib, "tomllib needs Python 3.11")
+    def test_every_codex_agent_parses_as_toml(self):
+        files = sorted((DIST / "codex" / "agents").glob("*.toml"))
+        self.assertEqual(len(files), 12)
+        for path in files:
+            with self.subTest(path.name):
+                data = tomllib.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(f"{data['name']}.toml", path.name)
+                self.assertIn(data["model_reasoning_effort"], ("high", "medium", "low"))
+                self.assertNotIn("model", data)
+                self.assertTrue(data["developer_instructions"].strip())
+
+    def test_codex_block_fits_eight_kibibytes(self):
+        size = (DIST / "codex" / "AGENTS.block.md").stat().st_size
+        self.assertLessEqual(size, 8192)
+
+    def test_always_loaded_brain_files_stay_within_2500_words(self):
+        for name in ("claude-code", "opencode"):
+            with self.subTest(name):
+                words = len((DIST / name / "BRAIN.md").read_text(encoding="utf-8").split())
+                self.assertLessEqual(words, 2500)
+
+    def test_opencode_workers_are_subagents_and_maestro_is_primary(self):
+        agents = sorted((DIST / "opencode" / "agents").glob("*.md"))
+        self.assertEqual(len(agents), 13)
+        for path in agents:
+            with self.subTest(path.name):
+                expected = "mode: primary" if path.stem == "maestro" else "mode: subagent"
+                self.assertIn(expected, path.read_text(encoding="utf-8").splitlines())
+
+    def test_plugin_manifest_lists_every_claude_code_agent(self):
+        manifest = json.loads((REPO / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        listed = sorted(manifest["agents"])
+        actual = sorted(f"./dist/claude-code/agents/{path.name}" for path in (DIST / "claude-code" / "agents").glob("*.md"))
+        self.assertEqual(listed, actual)
+        self.assertEqual(len(listed), 12)
+
+
+class BuildDistCheckTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.copy = Path(os.path.realpath(self._tmp.name)) / "repo"
+        shutil.copytree(
+            REPO, self.copy, ignore=shutil.ignore_patterns(".git", "__pycache__", "node_modules")
+        )
+
+    def check(self):
+        return subprocess.run(
+            [sys.executable, str(self.copy / "tools" / "build-dist"), "--check"], capture_output=True, text=True, env=isolated_env(self.copy.parent / "profile")
+        )
+
+    def test_check_passes_on_the_committed_tree(self):
+        result = subprocess.run([sys.executable, str(BUILD_DIST), "--check"], capture_output=True, text=True, env=isolated_env(self.copy.parent / "profile"))
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+
+    def test_check_fails_after_editing_a_core_file(self):
+        path = self.copy / "core" / "rules" / "posture.md"
+        path.write_text(path.read_text(encoding="utf-8") + "Extra line.\n", encoding="utf-8")
+        result = self.check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("StaleDistError", result.stderr)
+        self.assertIn("outdated dist/claude-code/BRAIN.md", result.stderr)
+
+    def test_check_fails_on_an_unexpected_dist_file(self):
+        (self.copy / "dist" / "stray.md").write_text("x\n", encoding="utf-8")
+        result = self.check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unexpected dist/stray.md", result.stderr)
+
+    def test_generate_then_check_passes_and_is_idempotent(self):
+        shutil.rmtree(self.copy / "dist")
+        generate = subprocess.run([sys.executable, str(self.copy / "tools" / "build-dist")], capture_output=True, text=True, env=isolated_env(self.copy.parent / "profile"))
+        self.assertEqual((generate.returncode, generate.stderr), (0, ""))
+        self.assertEqual(self.check().returncode, 0)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
 """Render core agents, skills and rules into one tool's config dirs.
 
-Usage: brain-sync <side-config.json> [--dry-run | --check] [--config-dir PATH]
+Usage: rendercore.py <side-config.json> [--dry-run | --check] [--config-dir PATH]
 
-The core is the repository this script lives in (bin/..). The side is the
-directory holding the side config. Text is rendered with {{CORE}}, {{SIDE}}
-and, when --config-dir is given, {{CONFIG_DIR}}; any other {{...}} aborts the
+The core is the repository this module lives in (bin/lib/../..). The side is the
+directory holding the side config. Text is rendered with {{CORE}}, {{SIDE}},
+{{PY}} and, when --config-dir is given, {{CONFIG_DIR}}; any other {{...}} aborts the
 run before anything is written.
 
 --check only scans the core (secrets, then the side's denylist).
@@ -22,7 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "bin" / "lib"))
 
 import frontmatter  # noqa: E402
@@ -116,14 +115,14 @@ def strip_comments(value):
 
 def load_config(path):
     try:
-        return strip_comments(json.loads(expand(path).read_text()))
+        return strip_comments(json.loads(expand(path).read_text(encoding="utf-8")))
     except (OSError, ValueError) as error:
         raise InvalidConfigError(f"{path}: {type(error).__name__}")
 
 
 class Renderer:
     def __init__(self, side, config_dir):
-        self.values = {"CORE": ROOT, "SIDE": side}
+        self.values = {"CORE": ROOT, "SIDE": side, "PY": "python3"}
         if config_dir:
             self.values["CONFIG_DIR"] = config_dir
 
@@ -144,7 +143,7 @@ def core_path(relative):
 
 
 def core_text(relative):
-    return core_path(relative).read_text()
+    return core_path(relative).read_text(encoding="utf-8")
 
 
 def read_rules(names):
@@ -184,7 +183,7 @@ def merge_rules(*groups):
 
 def parse_agent(source):
     try:
-        header, body = frontmatter.parse(source.read_text())
+        header, body = frontmatter.parse(source.read_text(encoding="utf-8"))
     except frontmatter.FrontmatterError as error:
         raise InvalidFrontmatterError(f"{source.name}: {type(error).__name__}: {error}")
     for key in ("name", "description"):
@@ -200,12 +199,12 @@ def emit_document(header, body, source):
         raise InvalidConfigError(f"{source}: {type(error).__name__}: {error}")
 
 
-def agent_files(config):
+def agent_documents(config):
     include_name = config.get("include_name", True)
     defaults = config.get("defaults", {})
     overrides = config.get("agents", {})
     skip = set(config.get("skip", []))
-    files = {}
+    documents = {}
     extra_bodies = {core_path(extra["body_from"]) for extra in config.get("extra_agents", {}).values()}
     for source in sorted((CORE / "agents").glob("*.md")):
         if source.resolve() in extra_bodies:
@@ -221,15 +220,17 @@ def agent_files(config):
             rules_list(settings.pop("rules", None), f"agent {name} config"),
         )
         base = {"name": name} if include_name else {}
-        document = {**base, "description": header["description"], **settings}
-        files[f"{name}.md"] = emit_document(document, with_rules(body, rules), name)
+        documents[name] = ({**base, "description": header["description"], **settings}, with_rules(body, rules))
     for name, extra in config.get("extra_agents", {}).items():
         settings = dict(extra["frontmatter"])
         rules = rules_list(settings.pop("rules", None), f"extra agent {name}")
         base = {"name": name} if include_name else {}
-        body = core_text(extra["body_from"])
-        files[f"{name}.md"] = emit_document({**base, **settings}, with_rules(body, rules), name)
-    return files
+        documents[name] = ({**base, **settings}, with_rules(core_text(extra["body_from"]), rules))
+    return documents
+
+
+def agent_files(config):
+    return {f"{name}.md": emit_document(header, body, name) for name, (header, body) in agent_documents(config).items()}
 
 
 def collect_skills(skills, files):
@@ -268,7 +269,7 @@ def rules_file(config, side, source=None):
         path = source / expand(raw)
         if not path.is_file():
             raise MissingSourceError(str(path))
-        parts.append(path.read_text().strip())
+        parts.append(path.read_text(encoding="utf-8").strip())
     return side / expand(rules["target"]), "\n\n".join(parts) + "\n"
 
 
@@ -278,7 +279,7 @@ def owned_entries(directory):
     path = directory / MANIFEST
     if not path.exists():
         return set(), False
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
     if not lines or lines[0] != MANIFEST_HEADER:
         raise ForeignManifestError(f"{path} does not belong to core {ROOT}")
     entries = {line for line in lines[1:] if line}
@@ -361,7 +362,7 @@ def leak_check(config, side):
 
 def denylist_terms(path):
     try:
-        lines = path.read_text().splitlines()
+        lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
         raise DenylistUnavailableError("file is missing or unreadable")
     terms = [line.strip().lower() for line in lines if line.strip() and not line.lstrip().startswith("#")]

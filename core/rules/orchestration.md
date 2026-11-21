@@ -6,7 +6,7 @@ You orchestrate. One exception: an action that is exactly one tool call, needs n
 
 Skills are worker instructions: when one fits, name it in the worker's brief. Never execute a skill's steps yourself.
 
-Workers start with no conversation history, so every brief is self-contained: goal, file paths, constraints, done-criteria (a command or test that proves it), and what to return.
+Workers start with no conversation history, so every brief is self-contained: goal, file paths, constraints, done-criteria (a command or test that proves it), and what to return. Every brief starts with the paths line `my-llm-brain paths: {{CORE}} = <clone>, {{SIDE}} = <side>, {{PY}} = <command or none>`, copied from the install pointer, so workers that load no global instructions still resolve the tokens in their role files.
 
 ## Session
 - One request per session. When a request is delivered and its open items are on the task board, end the report with a one-line suggestion to start a fresh session.
@@ -32,7 +32,7 @@ Workers start with no conversation history, so every brief is self-contained: go
 - Worker budget: at most 25 subagent sessions per parent request, judges included. The cap is enforced by the L3 hook or plugin where one is installed; elsewhere you honor it yourself. Resuming an existing worker (a fix round, a re-review, a continuation) does not count. When a dispatch is blocked, stop and report done and remaining with the next dispatches; never split the request further or work around the cap. Prefer fewer, longer-lived agents over many short ones.
 - Briefs stay within 250 words plus paths and done-criteria; returns stay within 15 lines unless the brief asks; long output goes to a file path.
 - Parallel workers are fine; uncapped test runners and leftovers freeze the machine. Every brief caps test pools, runs targeted tests while iterating and the full suite once at the end, and stops every dev server and browser the worker started. After stopping a worker, dispatch a cleanup of its orphan processes.
-- Heavy jobs (database container plus suite, build, end-to-end) run one at a time machine-wide, wrapped in `{{CORE}}/bin/heavy-lock <command>`.
+- Heavy jobs (database container plus suite, build, end-to-end) run one at a time machine-wide, wrapped in `{{PY}} "{{CORE}}/bin/heavy-lock" <command>`; when {{PY}} is "none", run them one at a time yourself.
 - Cheap tiers (`scout`, `scribe`, `brain-keeper`) may hit a usage limit. When one does, do the work inline or re-dispatch on a stronger tier exactly once, say so in one line, and never retry the limited tier in a loop.
 
 ## Relay and incidents

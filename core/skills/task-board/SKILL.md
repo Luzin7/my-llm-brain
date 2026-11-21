@@ -6,7 +6,7 @@ Worker: brain-keeper. The maestro never runs this skill itself; it names it in a
 
 # Task board
 
-The board directory is `{{SIDE}}/tasks`. Tools: `{{CORE}}/bin/tasks {{SIDE}}/tasks new "<title>"` and `{{CORE}}/bin/tasks {{SIDE}}/tasks board`.
+The board directory is `{{SIDE}}/tasks`. Tools: `{{PY}} "{{CORE}}/bin/tasks" "{{SIDE}}/tasks" new "<title>"` and `{{PY}} "{{CORE}}/bin/tasks" "{{SIDE}}/tasks" board`. When {{PY}} is "none", edit the task file by hand and rebuild BOARD.md as a table of id, title and status read from every task file.
 
 ## When to create a task
 - The work will not finish in this session, depends on someone else, or needs a later check (deploy, merge, external run).
