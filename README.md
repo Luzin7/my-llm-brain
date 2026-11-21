@@ -83,6 +83,11 @@ Claude Code can also take the plugins straight from the marketplace; the rules b
 
 v1 (the `brain-init` installer) is tag `v1`. The v2 install detects v1 manifests and stops. Uninstall v1 from that tag first, following its README, then start INSTALL.md.
 
+### Tips
+
+- Obsidian (optional): the side folder (default `~/my-brain`) is plain markdown, so you can open it as an Obsidian vault to browse memory and tasks. The AI reads the files directly, so this is not required. Obsidian only adds a `.obsidian/` folder, which is harmless.
+- Backup: the side is the only copy of your brain. Make it a private git repo of your own: run `git init` inside the side folder and push to a private remote. Never put it in a public repo or inside this clone.
+
 ## Levels
 
 | Level | Adds | Use it when |

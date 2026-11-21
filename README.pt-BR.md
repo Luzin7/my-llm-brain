@@ -83,6 +83,11 @@ O Claude Code também pode pegar os plugins direto do marketplace; o bloco de re
 
 O v1 (o instalador `brain-init`) é a tag `v1`. A instalação v2 detecta os manifestos do v1 e para. Desinstale o v1 a partir dessa tag, seguindo o README dela, e só então comece o INSTALL.md.
 
+### Dicas
+
+- Obsidian (opcional): a pasta side (padrão `~/my-brain`) é markdown puro, então você pode abri-la como um vault do Obsidian para navegar pela memória e pelas tarefas. A IA lê os arquivos direto, então isso não é obrigatório. O Obsidian só cria uma pasta `.obsidian/`, que é inofensiva.
+- Backup: a side é a única cópia do seu cérebro. Faça dela um repositório git privado seu: rode `git init` dentro da pasta side e envie para um remoto privado. Nunca coloque em um repositório público nem dentro deste clone.
+
 ## Níveis
 
 | Nível | Adiciona | Use quando |
