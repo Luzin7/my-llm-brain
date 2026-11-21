@@ -1,0 +1,54 @@
+{
+  "_comment": "Example side config for opencode: models are omitted so the tool default applies; swap paths for your setup.",
+  "agents_dir": "~/.config/opencode/agent",
+  "skills_dir": "~/.config/opencode/skill",
+  "include_name": false,
+  "skip": [],
+  "defaults": {
+    "rules": [
+      "rules/posture.md"
+    ]
+  },
+  "agents": {
+    "architect": {},
+    "scout": {},
+    "backend-dev": {},
+    "frontend-dev": {},
+    "test-engineer": {},
+    "debugger": {},
+    "reviewer": {},
+    "edge-auditor": {},
+    "researcher": {},
+    "scribe": {},
+    "brain-keeper": {},
+    "operator": {}
+  },
+  "extra_agents": {
+    "maestro": {
+      "frontmatter": {
+        "description": "Orchestrator: plans, dispatches workers, judges results, never edits.",
+        "mode": "primary",
+        "permission": {
+          "edit": "deny",
+          "bash": "deny"
+        },
+        "rules": [
+          "rules/posture.md",
+          "rules/orchestration.md"
+        ]
+      },
+      "body_from": "maestro/maestro.md"
+    }
+  },
+  "rules_file": {
+    "shared": [
+      "rules/posture.md",
+      "rules/orchestration.md"
+    ],
+    "local": [
+      "rules/side.md",
+      "rules/preferences.md"
+    ],
+    "target": "~/.config/opencode/AGENTS.md"
+  }
+}

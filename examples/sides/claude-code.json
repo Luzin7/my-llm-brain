@@ -1,0 +1,65 @@
+{
+  "_comment": "Example side config: swap model aliases, tiers and paths for your own setup.",
+  "agents_dir": "~/.claude/agents",
+  "skills_dir": "~/.claude/skills",
+  "include_name": true,
+  "skip": [],
+  "tiers": {
+    "judge": {
+      "effort": "high",
+      "autoCompactWindow": 200000
+    },
+    "worker": {
+      "autoCompactWindow": 150000
+    },
+    "mechanical": {
+      "autoCompactWindow": 100000
+    }
+  },
+  "defaults": {
+    "omitClaudeMd": true,
+    "rules": [
+      "rules/posture.md"
+    ]
+  },
+  "agents": {
+    "architect": {
+      "model": "opus",
+      "effort": "xhigh"
+    },
+    "scout": {
+      "model": "haiku"
+    },
+    "backend-dev": {
+      "model": "sonnet"
+    },
+    "frontend-dev": {
+      "model": "sonnet"
+    },
+    "test-engineer": {
+      "model": "sonnet"
+    },
+    "debugger": {
+      "model": "sonnet"
+    },
+    "reviewer": {
+      "model": "sonnet"
+    },
+    "edge-auditor": {
+      "model": "opus",
+      "effort": "high"
+    },
+    "researcher": {
+      "model": "sonnet"
+    },
+    "scribe": {
+      "model": "haiku"
+    },
+    "brain-keeper": {
+      "model": "haiku"
+    },
+    "operator": {
+      "model": "sonnet"
+    }
+  }
+}
