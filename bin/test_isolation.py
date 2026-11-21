@@ -45,7 +45,8 @@ class IsolationTest(unittest.TestCase):
     def test_child_writes_land_in_the_root(self):
         env = isolated_env(self.root / "iso")
         subprocess.run([sys.executable, "-c", WRITE_HOME], env=env, check=True)
-        self.assertTrue((Path(env["HOME"]) / "written").exists())
+        home = env["USERPROFILE" if os.name == "nt" else "HOME"]
+        self.assertTrue((Path(home) / "written").exists())
 
     def test_sentinel_in_the_real_profile_is_untouched(self):
         real = self.root / "real"

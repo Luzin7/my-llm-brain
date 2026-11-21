@@ -17,7 +17,7 @@ def note(name="feedback_a", description="d", type_="feedback"):
 def build(files):
     root = tempfile.mkdtemp()
     for filename, text in files.items():
-        Path(root, filename).write_text(text)
+        Path(root, filename).write_text(text, encoding="utf-8")
     return root
 
 

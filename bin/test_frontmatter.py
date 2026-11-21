@@ -113,7 +113,7 @@ class CheckCliTest(unittest.TestCase):
             paths = []
             for number, text in enumerate(texts):
                 path = Path(tmp) / f"f{number}.md"
-                path.write_text(text)
+                path.write_text(text, encoding="utf-8")
                 paths.append(str(path))
             return subprocess.run([sys.executable, str(MODULE), "--check", *paths], capture_output=True, text=True)
 
@@ -125,6 +125,9 @@ class CheckCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("f1.md", result.stderr)
         self.assertIn("MissingFrontmatterError", result.stderr)
+
+    def test_non_ascii_file_exits_0(self):
+        self.assertEqual(self.run_check(doc("a: ação — ü\n")).returncode, 0)
 
     def test_no_files_is_usage_error(self):
         result = subprocess.run([sys.executable, str(MODULE), "--check"], capture_output=True, text=True)

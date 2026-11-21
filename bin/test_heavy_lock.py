@@ -69,6 +69,11 @@ class HeavyLockTest(unittest.TestCase):
         env.update(extra)
         return env
 
+    def default_lock_dir(self, env):
+        if os.name == "nt":
+            return Path(env["LOCALAPPDATA"]) / "brain"
+        return Path(env["HOME"]) / ".local" / "state" / "brain"
+
     def run_default(self, env):
         return subprocess.run([sys.executable, str(SCRIPT), sys.executable, "-c", "pass"], env=env, capture_output=True, text=True)
 
@@ -82,12 +87,12 @@ class HeavyLockTest(unittest.TestCase):
         env = self.default_path_env()
         result = self.run_default(env)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((Path(env["HOME"]) / ".local" / "state" / "brain" / "heavy.lock").exists())
+        self.assertTrue((self.default_lock_dir(env) / "heavy.lock").exists())
 
     def test_empty_xdg_state_home_is_treated_as_unset(self):
         env = self.default_path_env(XDG_STATE_HOME="")
         self.assertEqual(self.run_default(env).returncode, 0)
-        self.assertTrue((Path(env["HOME"]) / ".local" / "state" / "brain" / "heavy.lock").exists())
+        self.assertTrue((self.default_lock_dir(env) / "heavy.lock").exists())
 
     def test_no_command_is_usage_error(self):
         job = start([], self.lock)

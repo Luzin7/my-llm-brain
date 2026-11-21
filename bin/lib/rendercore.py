@@ -353,7 +353,7 @@ def leak_check(config, side):
     for path in sorted(CORE.rglob("*")):
         if not path.is_file() or "__pycache__" in path.parts:
             continue
-        for number, line in enumerate(path.read_text(errors="ignore").splitlines(), 1):
+        for number, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
             if any(term in line.lower() for term in terms):
                 hits.append(f"{path.relative_to(ROOT)}:{number}")
     if hits:

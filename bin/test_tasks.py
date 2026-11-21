@@ -24,14 +24,14 @@ class TasksTest(unittest.TestCase):
         return Path(result.stdout.strip())
 
     def board(self):
-        return (self.dir / "BOARD.md").read_text()
+        return (self.dir / "BOARD.md").read_text(encoding="utf-8")
 
     def test_new_creates_file_and_board(self):
         path = self.new("First task")
         self.assertEqual(path.name, "T-0001-first-task.md")
         today = datetime.date.today().isoformat()
         self.assertEqual(
-            path.read_text(),
+            path.read_text(encoding="utf-8"),
             f"---\nid: T-0001\ntitle: First task\nstatus: todo\ncreated: {today}\nupdated: {today}\nproof: []\n---\n"
             f"## Goal\n\n## Done criteria\n\n## Log\n- {today} created\n",
         )
@@ -47,7 +47,7 @@ class TasksTest(unittest.TestCase):
 
     def test_board_groups_by_status_and_shows_proof(self):
         path = self.new("a")
-        path.write_text(path.read_text().replace("status: todo", "status: doing").replace("proof: []", "proof:\n  - run-1\n  - run-2"))
+        path.write_text(path.read_text(encoding="utf-8").replace("status: todo", "status: doing").replace("proof: []", "proof:\n  - run-1\n  - run-2"), encoding="utf-8")
         self.assertEqual(run(str(self.dir), "board").returncode, 0)
         board = self.board()
         self.assertIn("## doing (1)\n- [T-0001](T-0001-a.md) a", board)
@@ -56,18 +56,24 @@ class TasksTest(unittest.TestCase):
 
     def test_unknown_status_fails_loudly(self):
         path = self.new("a")
-        path.write_text(path.read_text().replace("status: todo", "status: bogus"))
+        path.write_text(path.read_text(encoding="utf-8").replace("status: todo", "status: bogus"), encoding="utf-8")
         result = run(str(self.dir), "board")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("bogus", result.stderr)
 
     def test_unsupported_frontmatter_names_the_file(self):
         path = self.new("a")
-        path.write_text(path.read_text().replace("title: a", "title: |\n  x"))
+        path.write_text(path.read_text(encoding="utf-8").replace("title: a", "title: |\n  x"), encoding="utf-8")
         result = run(str(self.dir), "board")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("T-0001-a.md", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
+
+    def test_non_ascii_title_round_trips_as_utf8_with_lf_newlines(self):
+        self.new("Ação — revisão")
+        raw = (self.dir / "BOARD.md").read_bytes()
+        self.assertIn("Ação — revisão".encode("utf-8"), raw)
+        self.assertNotIn(b"\r", raw)
 
     def test_usage_error(self):
         self.assertNotEqual(run(str(self.dir)).returncode, 0)

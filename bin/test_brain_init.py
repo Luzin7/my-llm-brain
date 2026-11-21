@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -40,6 +41,10 @@ def words(path):
     return len(Path(path).read_text().split())
 
 
+RETIRED_ON_WINDOWS = unittest.skipIf(os.name == 'nt', 'retired in T2')
+
+
+@RETIRED_ON_WINDOWS
 class BrainInitCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="brain-init-")).resolve()
