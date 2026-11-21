@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""PreToolUse hook: the main session only orchestrates; subagents keep full tools.
+
+Config directory: CLAUDE_CONFIG_DIR, default ~/.claude.
+Main-session writes are allowed only inside the directories listed (one per line)
+in <config>/maestro-guard.paths. Grep is allowed only under the directories listed in
+<config>/maestro-guard.grep-paths (none listed means Grep is blocked).
+Create <config>/maestro-guard.off to disable.
+"""
+import json
+import os
+import re
+import sys
+
+BLOCK_MESSAGE = (
+    "Main session only orchestrates: dispatch this to a worker subagent "
+    "(scout, researcher, implementer, test engineer, reviewer)."
+)
+BLOCKED_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "Grep"}
+MEMORY_WRITE_TOOLS = {"Write", "Edit", "MultiEdit"}
+READONLY_GIT = re.compile(r"^\s*git\s+(-C\s+[\w./~+@:-]+\s+)?(status|diff|log|show)(\s|$)")
+SHELL_METACHARS = set(";&|`$<>()\n\r")
+ONE_CALL_PROGRAMS = {"ls", "wc", "head", "cat", "jq"}
+FORBIDDEN_GIT_TOKENS = ("--output", "--ext-diff", "difftool")
+
+
+def config_dir():
+    configured = os.environ.get("CLAUDE_CONFIG_DIR")
+    return os.path.expanduser(configured) if configured else os.path.expanduser("~/.claude")
+
+
+def block():
+    print(BLOCK_MESSAGE, file=sys.stderr)
+    sys.exit(2)
+
+
+def path_list(name):
+    try:
+        with open(os.path.join(config_dir(), name), encoding="utf-8") as handle:
+            lines = [line.strip() for line in handle]
+    except OSError:
+        return []
+    return [os.path.realpath(os.path.expanduser(line)) for line in lines if line]
+
+
+def is_under(path, roots, allow_root):
+    if not isinstance(path, str) or not path:
+        return False
+    target = os.path.realpath(os.path.expanduser(path))
+    return any(
+        (allow_root and target == root) or target.startswith(root + os.sep) for root in roots
+    )
+
+
+def is_readonly_git(command):
+    if not isinstance(command, str) or not READONLY_GIT.match(command):
+        return False
+    if SHELL_METACHARS & set(command):
+        return False
+    return not any(token in command for token in FORBIDDEN_GIT_TOKENS)
+
+
+def is_one_call_command(command):
+    if not isinstance(command, str) or SHELL_METACHARS & set(command):
+        return False
+    words = command.split()
+    return bool(words) and words[0] in ONE_CALL_PROGRAMS
+
+
+def is_allowed_bash(command):
+    return is_readonly_git(command) or is_one_call_command(command)
+
+
+def is_allowed_main_call(tool, tool_input):
+    if tool == "Bash":
+        return is_allowed_bash(tool_input.get("command"))
+    if tool in MEMORY_WRITE_TOOLS and is_under(
+        tool_input.get("file_path"), path_list("maestro-guard.paths"), False
+    ):
+        return True
+    if tool == "Grep" and is_under(
+        tool_input.get("path"), path_list("maestro-guard.grep-paths"), True
+    ):
+        return True
+    return tool not in BLOCKED_TOOLS and not tool.startswith("mcp__")
+
+
+def main():
+    if os.path.exists(os.path.join(config_dir(), "maestro-guard.off")):
+        return
+    try:
+        event = json.load(sys.stdin)
+        if not isinstance(event, dict):
+            raise ValueError("payload is not an object")
+    except ValueError as error:
+        print(f"maestro-guard warning: invalid input, allowing ({error})", file=sys.stderr)
+        return
+    if event.get("agent_id"):
+        return
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+    if not is_allowed_main_call(event.get("tool_name") or "", tool_input):
+        block()
+
+
+main()
