@@ -1,5 +1,35 @@
 # Contributing
 
+Changes to the template are welcome. The rules of the road: tests first, the leak gate clean, one reviewer pass before merge.
+
+## Ground rules
+
+- Rewrite, never paste. `core/` is neutral: no company, person, host, client, language, model-vendor or home-path names. Paths are `{{CORE}}` and `{{SIDE}}` tokens.
+- Python 3.9+ and the standard library only. Node is for the opencode plugin tests only.
+- Docs are English. `README.pt-BR.md` mirrors the README and must keep the same number of headings.
+- Commits and pull requests carry no AI-attribution lines.
+
+## Tests
+
+Run everything before you push. Never point tests at your real home: the init tests abort if `HOME` is the real one.
+
+```bash
+TZ=UTC python3 -m unittest discover -s bin -p 'test_*.py' -v
+TZ=UTC python3 -m unittest discover -s adapters/claude-code/hooks -p 'test_*.py' -v
+python3 -m unittest tools/leak-gate/test_leak_gate.py -v
+(cd adapters/opencode && node --test 'plugins/*.test.mjs')
+tools/docs/check-links
+tools/docs/run-quickstart
+```
+
+`tools/docs/check-links` checks that local links and anchors in the docs resolve. `tools/docs/run-quickstart` extracts the README quickstart and runs it with a temporary `HOME`, `CLAUDE_CONFIG_DIR` and `XDG_CONFIG_HOME`; it must exit 0 in well under five minutes. If you change `brain-init` behavior, change the quickstart text with it.
+
+New behavior gets a failing test first, seen failing for the right reason. A test is never loosened to pass.
+
+## Review
+
+Open a pull request with the diff, the commands you ran and their results. A reviewer checks the diff against these rules, re-runs the tests and confirms no assertion was weakened. Changes that touch install wiring (`brain-init`, hooks, plugins) or CI also get an edge review: runs twice, stops halfway, stale state, timeouts, "nothing" versus "broken", and where it really runs. Merging is the maintainer's call.
+
 ## Leak gate
 
 Nothing private may enter this repository, including its history. `tools/leak-gate/leak-gate` enforces it.
@@ -8,7 +38,9 @@ What it checks, in the working tree and (with `--history`) in every commit reach
 
 1. gitleaks, with the rules in `.gitleaks.toml` (default rules plus redacted output).
 2. `tools/leak-gate/patterns.txt`: home-directory paths, e-mail addresses outside the allowlist, private IPv4 addresses, `.internal` and `.local` hosts.
-3. A private denylist of whole-word, case-insensitive terms, read from the file named by `LEAK_DENYLIST`. The file lives outside the repository and is never committed. The gate prints `denylist #N` (the term's position in the file), never the term.
+3. A private denylist of case-insensitive substring terms, read from the file named by `LEAK_DENYLIST`. The file lives outside the repository and is never committed. The gate prints `denylist #N` (the term's position in the file), never the term.
+
+`--public-only` skips item 3 and prints `denylist: skipped (public-only mode)`. CI uses it unless the private denylist secret is enabled.
 
 Exit codes: `0` clean, `1` findings, `2` the gate could not run (denylist unset, missing or empty; gitleaks unavailable or not the pinned version; not a git repository).
 
@@ -29,7 +61,7 @@ Verify the checksum before extracting. The gate refuses a binary whose `version`
 
 ### Hooks
 
-Enable the pre-push hook once per clone: `git config core.hooksPath .githooks`. It runs `leak-gate --history` and blocks the push on any non-zero exit. `git push --no-verify` bypasses it, so CI repeats the scan.
+Enable the pre-push hook once per clone: `git config core.hooksPath .githooks`. It runs `leak-gate --history` and blocks the push on any non-zero exit. `git push --no-verify` bypasses it, so CI repeats the scan: the public patterns and gitleaks always, the private denylist scan only when the repository variable `LEAK_DENYLIST_REQUIRED` is `true`. Set it before the repository goes public.
 
 ### Commit identity
 

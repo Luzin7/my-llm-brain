@@ -1,0 +1,111 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  TZ: UTC
+
+jobs:
+  python:
+    name: python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: bin tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s bin -p 'test_*.py'
+          python3 -m unittest bin/test_brain_init.py
+      - name: leak-gate tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest tools/leak-gate/test_leak_gate.py
+      - name: hook tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s adapters/claude-code/hooks -p 'test_*.py'
+      - name: docs
+        run: |
+          set -euo pipefail
+          tools/docs/check-links
+          tools/docs/run-quickstart
+
+  node:
+    name: opencode plugins on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+      - name: plugin tests
+        run: |
+          set -euo pipefail
+          cd adapters/opencode
+          node --test 'plugins/*.test.mjs'
+
+  leak-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: install pinned gitleaks
+        run: |
+          set -euo pipefail
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          dir="$RUNNER_TEMP/gitleaks"
+          mkdir -p "$dir"
+          curl -fsSL --max-time 120 -o "$dir/$archive" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  $dir/$archive" | sha256sum -c -
+          tar -xzf "$dir/$archive" -C "$dir" gitleaks
+          echo "GITLEAKS_BIN=$dir/gitleaks" >> "$GITHUB_ENV"
+      - name: leak gate, public patterns and history
+        if: vars.LEAK_DENYLIST_REQUIRED != 'true'
+        run: |
+          set -euo pipefail
+          echo "::notice::private denylist not configured"
+          tools/leak-gate/leak-gate --history --public-only
+      - name: leak gate, public patterns, private denylist and history
+        if: vars.LEAK_DENYLIST_REQUIRED == 'true'
+        env:
+          LEAK_DENYLIST_CONTENT: ${{ secrets.LEAK_DENYLIST }}
+        run: |
+          set -euo pipefail
+          if [ -z "$LEAK_DENYLIST_CONTENT" ]; then
+            echo "::error::LEAK_DENYLIST secret is empty"
+            exit 1
+          fi
+          denylist="$RUNNER_TEMP/denylist.txt"
+          umask 077
+          printf '%s\n' "$LEAK_DENYLIST_CONTENT" > "$denylist"
+          echo "private denylist: checked"
+          LEAK_DENYLIST="$denylist" tools/leak-gate/leak-gate --history

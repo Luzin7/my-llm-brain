@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""check-links: verify that local links and anchors in the documentation resolve.
+
+Scans README*.md, CONTRIBUTING.md, docs/ and adapters/ markdown. Skips external
+links and anything inside code fences. Exit 0 clean, 1 broken links.
+"""
+import re
+import sys
+from pathlib import Path
+from urllib.parse import unquote
+
+ROOT = Path(__file__).resolve().parents[2]
+LINK = re.compile(r"(?<!\!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+def sources():
+    found = sorted(ROOT.glob("README*.md")) + [ROOT / "CONTRIBUTING.md"]
+    for folder in ("docs", "adapters"):
+        found += sorted((ROOT / folder).rglob("*.md"))
+    return [path for path in found if path.is_file()]
+
+
+def lines_outside_fences(text):
+    inside = False
+    for number, line in enumerate(text.splitlines(), 1):
+        if FENCE.match(line):
+            inside = not inside
+            continue
+        if not inside:
+            yield number, line
+
+
+def slug(heading):
+    text = re.sub(r"`", "", heading.strip().lower())
+    text = re.sub(r"[^\w\- ]", "", text)
+    return text.replace(" ", "-")
+
+
+def anchors(path):
+    found, seen = set(), {}
+    for _, line in lines_outside_fences(path.read_text(encoding="utf-8")):
+        match = re.match(r"^#{1,6}\s+(.*?)\s*#*\s*$", line)
+        if not match:
+            continue
+        base = slug(match.group(1))
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        found.add(base if count == 0 else f"{base}-{count}")
+    return found
+
+
+def main():
+    problems, cache = [], {}
+    for source in sources():
+        text = source.read_text(encoding="utf-8")
+        for number, line in lines_outside_fences(text):
+            line = re.sub(r"`[^`]*`", "", line)
+            for target in LINK.findall(line):
+                if re.match(r"^[a-z][a-z0-9+.-]*:", target):
+                    continue
+                path_part, _, fragment = target.partition("#")
+                resolved = source if not path_part else (source.parent / unquote(path_part)).resolve()
+                where = f"{source.relative_to(ROOT)}:{number}"
+                if not resolved.exists():
+                    problems.append(f"{where}: missing file {target}")
+                    continue
+                if fragment and resolved.suffix == ".md":
+                    if resolved not in cache:
+                        cache[resolved] = anchors(resolved)
+                    if unquote(fragment).lower() not in cache[resolved]:
+                        problems.append(f"{where}: missing anchor {target}")
+    for problem in problems:
+        print(problem)
+    print(f"checked {len(sources())} files, {len(problems)} broken links")
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
