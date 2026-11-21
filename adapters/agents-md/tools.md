@@ -1,6 +1,6 @@
 # Tools that read one instruction file
 
-Render the single file with `brain-init --harness agents-md --target <path>`: core rules, `protocol.md`, `role-cards.md`. The file stays at or under 4000 words, so it fits every limit below. Verified against official docs on 2026-11-21; anything not confirmed is marked UNVERIFIED.
+The single file is `dist/agents-md/AGENTS.md` (core rules, `protocol.md`, `role-cards.md`), added to your target as a marked block by INSTALL.md. The file stays at or under 4000 words, so it fits every limit below. Verified against official docs on 2026-11-21; anything not confirmed is marked UNVERIFIED.
 
 Memory pointer to add to the rendered file (every tool): "At session start read {{SIDE}}/memory/MEMORY.md; open only the notes it indexes that this task needs." Tools cannot auto-load an index, so this line is the whole mechanism.
 

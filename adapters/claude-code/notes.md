@@ -8,16 +8,16 @@ Harness-only lines that the neutral core rules leave out.
 - Start a fresh session with `/clear`. Compact with `/compact <focus line>`.
 - The fan-out cap is enforced by the L3 `subagent-cap` PreToolUse hook (matcher `Agent|Task`, main session only). Without L3 the cap is a rule the maestro follows.
 - The main session is held to orchestrating only by the L3 `maestro-guard` hook. Without it, the rule is text only.
-- Model and effort tiers come from `examples/sides/claude-code.json` (agent frontmatter `model`, `effort`); the cheap tiers may hit a separate usage quota.
+- Model and effort tiers come from `tools/dist.config.json` (agent frontmatter `model`, `effort`); the cheap tiers may hit a separate usage quota.
 - `omitClaudeMd: true` (UNVERIFIED, see below) in the side config is meant to keep subagents from loading the project instructions file twice; each agent file already carries its rules.
 
 ## Always-loaded budget
 
-Posture, orchestration and memory together stay at or under 2500 words as rendered into `<side>/.generated/CLAUDE.md`. Edge and guardrails travel inside the agent files that need them, not in the main session.
+Posture, orchestration and memory together stay at or under 2500 words as built into `dist/claude-code/BRAIN.md` plus your side rules and memory index. Edge and guardrails travel inside the agent files that need them, not in the main session.
 
 ## Maestro
 
-The main session is the maestro. Its body is `core/maestro/maestro.md`; it is not installed as a subagent on this harness. It lives outside `core/agents/` because `brain-sync` parses every file there as a subagent definition.
+The main session is the maestro. Its body is `core/maestro/maestro.md`; it is not installed as a subagent on this harness. It lives outside `core/agents/` because every file there is built as a subagent definition.
 
 ## Hooks (level 3)
 
@@ -35,7 +35,7 @@ The hooks ship as the `brain-guards` plugin in `adapters/claude-code/guards/`: s
 
 ## UNVERIFIED frontmatter keys
 
-`examples/sides/claude-code.json` emits these keys; they are not confirmed against the Claude Code docs for the tested version (2.1.330):
+`tools/dist.config.json` emits these keys; they are not confirmed against the Claude Code docs for the tested version (2.1.330):
 - `autoCompactWindow` (per tier): UNVERIFIED. Check that a subagent file accepts it, or whether the compact window is set only in settings; an unknown key may be ignored silently.
 - `omitClaudeMd`: UNVERIFIED. Check that it is a supported agent frontmatter key and that it actually stops the project instructions file loading into the subagent.
 - `effort`: UNVERIFIED for the same reason; check the accepted values.

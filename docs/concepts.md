@@ -60,12 +60,12 @@ bin/tasks ~/brain/work/tasks board
 |---|---|---|
 | Lives in | this repo (`core/`) | a folder you choose, outside the repo |
 | Holds | method: rules, agents, skills, lessons | your scope, approvals, preferences, memory, tasks |
-| Updated by | `git pull` and re-run `brain-init` | you |
+| Updated by | `git pull` (and the update step of INSTALL.md for copies) | you |
 | Private data | never | yes |
 
-Core files use `{{CORE}}` and `{{SIDE}}` tokens. `brain-sync` renders them into the harness's config directory and records what it wrote in `.my-llm-brain-manifest`. An unknown token aborts before any write. It refuses a directory that holds another tool's manifest, and a side inside the core.
+Core files use `{{CORE}}`, `{{SIDE}}` and `{{PY}}` tokens. They stay literal in the built `dist/`; the install writes one paths line (`my-llm-brain paths: ...`) that tells the agent what each token means. Claude Code plugins substitute them natively. An unknown token aborts `tools/build-dist` before any write.
 
-Never edit a rendered file: the next sync reverts it. Edit the input (the core file, your side rules, the side config).
+`dist/` is generated: never edit it. Edit the input (the core file, your side rules, `tools/dist.config.json`) and rebuild.
 
 ## Leak gate
 

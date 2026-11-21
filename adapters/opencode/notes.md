@@ -1,6 +1,6 @@
 # opencode adapter notes
 
-Tested with opencode 2.3.2. This adapter installs two plugins and prints a config snippet. Nothing edits your `opencode.jsonc`: you paste the snippet yourself.
+Tested with opencode 2.3.2. This adapter ships two plugins and the config entries INSTALL.md writes into a new `opencode.json`. An existing `opencode.json` or `opencode.jsonc` is never edited by script: you merge the entries yourself.
 
 ## Gains this adapter gives
 
@@ -8,20 +8,21 @@ Tested with opencode 2.3.2. This adapter installs two plugins and prints a confi
 |---|---|---|
 | Fan-out cap | L3 | `plugins/subagent-cap/index.js` throws `FanOutCapReachedError` before the cap-plus-one subagent dispatch |
 | Context-size nudge | L3 | `plugins/context-guard/index.js` adds a system notice when the context passes a token threshold |
-| Main session orchestrates only | L3 | `maestro` agent with `edit`/`bash` permission deny (from `examples/sides/opencode.json`), not a plugin |
-| Memory index always loaded | L1+ | `instructions` entry in the snippet |
-| Main agent is the orchestrator | L2+ | `default_agent` entry in the snippet |
+| Main session orchestrates only | L3 | `maestro` agent with `edit`/`bash` permission deny (from `tools/dist.config.json`), not a plugin |
+| Memory index always loaded | L1+ | `instructions` entry in the config |
+| Main agent is the orchestrator | L2+ | `default_agent` entry in the config |
 | Per-role model tiers | L2+ | model only; opencode has no per-agent effort setting here |
 
 Everything else (posture, guardrails, scripts, role prompts, independent judge, skills) comes from the core and works the same as on other harnesses.
 
-## Snippet
+## Config entries
 
-`opencode.snippet.jsonc` has three keys. Merge them into your own config:
+INSTALL.md writes these keys into a new `opencode.json`, or prints them for you to merge:
 
 - `default_agent`: the orchestrator agent name.
-- `instructions`: path to the side's memory index, so it is always loaded.
-- `plugin`: file entries for the two plugins. Replace `{{SIDE}}` and `{{CONFIG_DIR}}` with your real paths (`brain-init` prints them filled in). If you already have a `plugin` array, append the two entries.
+- `instructions`: the built `BRAIN.md`, the side rules and the side's memory index, so they are always loaded.
+- `skills.paths`: the built skills directory (UNVERIFIED key shape; check with `opencode debug config`).
+- `plugin` (L3, manual): `file://<clone>/adapters/opencode/plugins/subagent-cap` and `.../context-guard`. If you already have a `plugin` array, append the two entries.
 
 ## Settings
 
@@ -60,4 +61,4 @@ Quote the glob: on recent Node versions `node --test plugins/` treats the direct
 
 ## Maestro agent (core text)
 
-`core/maestro/maestro.md` is the body of the `maestro` primary agent, declared under `extra_agents.maestro` in `examples/sides/opencode.json` with `edit` and `bash` permission deny. It sits outside `core/agents/` because `brain-sync` parses every file there as a worker agent. Resuming a worker is passing its existing session id to the subagent tool; it does not count toward the fan-out cap. Start a fresh session with a new opencode session.
+`core/maestro/maestro.md` is the body of the `maestro` primary agent, declared under `extra_agents.maestro` in `tools/dist.config.json` with `edit` and `bash` permission deny. It sits outside `core/agents/` because every file there is built as a worker agent. Resuming a worker is passing its existing session id to the subagent tool; it does not count toward the fan-out cap. Start a fresh session with a new opencode session.
